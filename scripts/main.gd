@@ -23,7 +23,7 @@ var _briefing_view: BriefingView
 var _debrief_view: DebriefView
 
 func _ready() -> void:
-	var world: WorldMapData = TestMapFactory.build()
+	var world: WorldMapData = WestfordMapFactory.build()
 	var incident_types: Array[IncidentTypeDefinition] = IncidentTypeFactory.build_all()
 	var events: Array[EventDefinition] = EventFactory.build_all()
 	Simulation.core.initialize(world, incident_types, events, 0) # 0 = random seed for a normal play session
@@ -36,11 +36,11 @@ func _ready() -> void:
 	var next_shift_number: int = SaveManager.load_into(Simulation.core)
 
 	camera = Camera2D.new()
-	# Centred on the small test map's actual bounding box (roughly
-	# x: -100..1650, y: -1650..950) with room to breathe -- checked against
-	# a real rendered screenshot, not guessed blind.
-	camera.position = Vector2(775, -350)
-	camera.zoom = Vector2(0.2, 0.2)
+	# Centred on the full Westford map's bounding box (roughly
+	# x: -3800..3850, y: -3500..6400) with room to breathe -- checked
+	# against a real rendered screenshot, not guessed blind.
+	camera.position = Vector2(25, 1450)
+	camera.zoom = Vector2(0.05, 0.05)
 	add_child(camera)
 	camera.make_current()
 

@@ -84,6 +84,8 @@ func _draw_static_map() -> void:
 		label.modulate = Color(0.6, 0.65, 0.75)
 		add_child(label)
 
+	_draw_building_footprints()
+
 	for edge: RoadEdge in _world.road_edges:
 		var from_node: RoadNode = _find_road_node(edge.from_id)
 		var to_node: RoadNode = _find_road_node(edge.to_id)
@@ -109,6 +111,52 @@ func _draw_static_map() -> void:
 		label.add_theme_font_size_override("font_size", 12)
 		label.modulate = Color(0.85, 0.85, 0.85)
 		marker.add_child(label)
+
+## Purely decorative building footprints (spec section 53 wants 500-800 of
+## these) -- generated here at draw time from each district's boundary,
+## never stored as WorldMapData, since they carry zero gameplay meaning
+## and hundreds of rectangle records would only bloat the world data for
+## something the simulation layer never needs to know about. A fixed seed
+## keeps the layout stable across runs rather than reshuffling every load.
+const BUILDING_SEED := 990817
+const BUILDING_COUNT_BY_DISTRICT := {
+	"town_centre": 160, "northside": 110, "east_estate": 100,
+	"south_residential": 130, "west_industrial": 90, "rural_outskirts": 60,
+}
+const DEFAULT_BUILDING_COUNT := 60
+
+func _draw_building_footprints() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = BUILDING_SEED
+	for district: DistrictDefinition in _world.districts:
+		if district.boundary.size() < 3:
+			continue
+		var center: Vector2 = _polygon_centroid(district.boundary)
+		var radius: float = center.distance_to(district.boundary[0])
+		var count: int = BUILDING_COUNT_BY_DISTRICT.get(district.id, DEFAULT_BUILDING_COUNT)
+		for i in range(count):
+			var angle: float = rng.randf_range(0.0, TAU)
+			# sqrt of a uniform [0,1] sample gives a uniform-by-area
+			# distribution across the circle, rather than clumping near
+			# the centre the way a plain linear radius sample would.
+			var dist: float = sqrt(rng.randf_range(0.0, 1.0)) * radius
+			if dist < radius * 0.12:
+				continue # leave the district's hub area visually clear
+			var pos: Vector2 = center + Vector2(cos(angle), sin(angle)) * dist
+			var size := Vector2(rng.randf_range(18.0, 42.0), rng.randf_range(18.0, 42.0))
+			var shade: float = rng.randf_range(0.32, 0.5)
+			var building := _make_rect(size, Color(shade, shade * 0.96, shade * 0.9, 0.8))
+			building.position = pos
+			add_child(building)
+
+func _make_rect(size: Vector2, color: Color) -> Polygon2D:
+	var poly := Polygon2D.new()
+	poly.polygon = PackedVector2Array([
+		Vector2(-size.x / 2.0, -size.y / 2.0), Vector2(size.x / 2.0, -size.y / 2.0),
+		Vector2(size.x / 2.0, size.y / 2.0), Vector2(-size.x / 2.0, size.y / 2.0),
+	])
+	poly.color = color
+	return poly
 
 func _find_road_node(node_id: String) -> RoadNode:
 	for node: RoadNode in _world.road_nodes:

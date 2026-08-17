@@ -8,9 +8,9 @@ extends RefCounted
 ## once this can be opened and checked in the actual editor; nothing else
 ## in the simulation layer cares which one supplies the WorldMapData.
 
-const TOWN_CENTRE := "town_centre"
-const NORTHSIDE := "northside"
-const EAST_ESTATE := "east_estate"
+const TOWN_CENTRE := DistrictIds.TOWN_CENTRE
+const NORTHSIDE := DistrictIds.NORTHSIDE
+const EAST_ESTATE := DistrictIds.EAST_ESTATE
 
 const POLICE_STATION := "police_station"
 
