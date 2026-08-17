@@ -7,11 +7,11 @@ extends Node2D
 ## phased plan (spec section 54: readable and mobile-friendly matters far
 ## more than polish this early) rather than faking it.
 ##
-## Clicking a unit is a lightweight visual select (no functional effect);
-## clicking an incident marker opens IncidentPanelView, which owns every
-## actual dispatch/reassign/recall/intent action (spec section 25-27) --
-## Milestone 2's click-unit-then-click-incident quick-dispatch shortcut is
-## gone, replaced by the panel it was always meant to lead to.
+## Clicking a unit opens UnitPanelView (welfare/breaks, spec section 14);
+## clicking an incident marker opens IncidentPanelView (dispatch/reassign/
+## recall/intent, spec section 25-27). The two panels are mutually
+## exclusive -- opening one closes the other, since both anchor to the
+## same screen position.
 
 const PRIORITY_COLORS := {
 	1: Color(0.85, 0.15, 0.15), # critical -- red
@@ -23,15 +23,29 @@ const PRIORITY_COLORS := {
 
 const CLICK_RADIUS := 40.0
 
+## Map overlays (spec section 41) -- simple district tinting, not a real
+## heatmap texture, which is enough at this scale/fidelity per section 54.
+enum OverlayType { NONE, ASB, VIOLENCE, BURGLARY, VISIBILITY, DEMAND }
+
+const DEFAULT_DISTRICT_COLOR := Color(0.5, 0.6, 0.8, 0.08)
+const OVERLAY_NOISE_REFRESH_TICKS := 15 # simulated minutes between fuzz re-rolls
+
 var _world: WorldMapData
 var _incident_panel: IncidentPanelView
+var _unit_panel: UnitPanelView
 var _unit_markers: Dictionary = {} # unit_id -> UnitMarker
 var _incident_markers: Dictionary = {} # incident_id -> IncidentMarker
+var _district_polygons: Dictionary = {} # district_id -> Polygon2D
 var _selected_unit_id: String = ""
+var _current_overlay: OverlayType = OverlayType.NONE
+var _overlay_noise: Dictionary = {} # district_id -> float
+var _overlay_tick_counter: int = 0
 
-func setup(world: WorldMapData, incident_panel: IncidentPanelView) -> void:
+func setup(world: WorldMapData, incident_panel: IncidentPanelView, unit_panel: UnitPanelView) -> void:
 	_world = world
 	_incident_panel = incident_panel
+	_unit_panel = unit_panel
+	_unit_panel.closed.connect(func(): _select_unit(""))
 	_draw_static_map()
 	_spawn_unit_markers()
 
@@ -60,8 +74,9 @@ func _draw_static_map() -> void:
 			continue
 		var poly := Polygon2D.new()
 		poly.polygon = district.boundary
-		poly.color = Color(0.5, 0.6, 0.8, 0.08)
+		poly.color = DEFAULT_DISTRICT_COLOR
 		add_child(poly)
+		_district_polygons[district.id] = poly
 		var label := Label.new()
 		label.text = district.display_name
 		label.position = _polygon_centroid(district.boundary) - Vector2(40, 8)
@@ -156,6 +171,68 @@ func _on_tick_completed() -> void:
 	# refresh every tick while a panel is actually open.
 	if _incident_panel and _incident_panel.visible:
 		_incident_panel.refresh()
+	if _unit_panel and _unit_panel.visible:
+		_unit_panel.refresh()
+	if _current_overlay != OverlayType.NONE:
+		_overlay_tick_counter += 1
+		if _overlay_tick_counter >= OVERLAY_NOISE_REFRESH_TICKS:
+			_overlay_tick_counter = 0
+			_refresh_overlay_noise()
+		_apply_overlay()
+
+## Called by HudView's overlay buttons (spec section 41).
+func set_overlay(overlay: OverlayType) -> void:
+	_current_overlay = overlay
+	_overlay_tick_counter = 0
+	_refresh_overlay_noise()
+	_apply_overlay()
+
+func _apply_overlay() -> void:
+	for district_id in _district_polygons.keys():
+		var poly: Polygon2D = _district_polygons[district_id]
+		if _current_overlay == OverlayType.NONE:
+			poly.color = DEFAULT_DISTRICT_COLOR
+			continue
+		var district: DistrictState = Simulation.core.district_manager.get_state(district_id)
+		if district == null:
+			continue
+		var value: float = _overlay_value(district)
+		# Low intelligence quality blurs the displayed value toward a
+		# per-district random offset, refreshed only occasionally (not
+		# every frame) so it reads as "uncertain," not flickering.
+		var noise: float = _overlay_noise.get(district_id, 0.0)
+		var displayed: float = clampf(value + noise, 0.0, 100.0)
+		# Visibility is the one overlay where HIGH is good, not bad --
+		# invert it so the heat colour still means "this needs attention."
+		var heat_input: float = 100.0 - displayed if _current_overlay == OverlayType.VISIBILITY else displayed
+		poly.color = _heat_color(heat_input)
+
+func _overlay_value(district: DistrictState) -> float:
+	match _current_overlay:
+		OverlayType.ASB: return district.asb
+		OverlayType.VIOLENCE: return district.violence
+		OverlayType.BURGLARY: return district.burglary_risk
+		OverlayType.VISIBILITY: return district.police_visibility
+		OverlayType.DEMAND: return district.incident_pressure
+		_: return 0.0
+
+func _refresh_overlay_noise() -> void:
+	_overlay_noise.clear()
+	for district_id in _district_polygons.keys():
+		var district: DistrictState = Simulation.core.district_manager.get_state(district_id)
+		var quality: float = district.intel_quality if district else 50.0
+		var noise_range: float = (100.0 - quality) * 0.3
+		_overlay_noise[district_id] = randf_range(-noise_range, noise_range)
+
+func _heat_color(value: float) -> Color:
+	var t: float = clampf(value / 100.0, 0.0, 1.0)
+	var color: Color
+	if t < 0.5:
+		color = Color(0.3, 0.75, 0.3).lerp(Color(0.9, 0.85, 0.2), t * 2.0)
+	else:
+		color = Color(0.9, 0.85, 0.2).lerp(Color(0.9, 0.2, 0.2), (t - 0.5) * 2.0)
+	color.a = 0.35
+	return color
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -165,15 +242,25 @@ func _handle_click(click_pos: Vector2) -> void:
 	for unit_id in _unit_markers.keys():
 		var marker: UnitMarker = _unit_markers[unit_id]
 		if marker.position.distance_to(click_pos) <= CLICK_RADIUS:
+			if _incident_panel:
+				_incident_panel.close()
+			if _unit_panel:
+				_unit_panel.open(unit_id)
 			_select_unit(unit_id)
 			return
 	for incident_id in _incident_markers.keys():
 		var marker: IncidentMarker = _incident_markers[incident_id]
 		if marker.position.distance_to(click_pos) <= CLICK_RADIUS:
+			if _unit_panel:
+				_unit_panel.close()
 			if _incident_panel:
 				_incident_panel.open(incident_id)
 			return
-	_select_unit("") # clicked empty space -- deselect, and leave any open panel as-is
+	# Clicked empty space -- close whichever panel is open.
+	if _incident_panel:
+		_incident_panel.close()
+	if _unit_panel:
+		_unit_panel.close()
 
 func _select_unit(unit_id: String) -> void:
 	if _selected_unit_id != "" and _unit_markers.has(_selected_unit_id):

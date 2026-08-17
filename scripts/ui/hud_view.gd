@@ -14,6 +14,7 @@ var _incidents_label: Label
 var _staffing_label: Label
 var _fatigue_label: Label
 var _feed_list: VBoxContainer
+var _overlay_row: HBoxContainer
 
 var _fatigue_warning_count: int = 0
 
@@ -46,6 +47,12 @@ func _ready() -> void:
 	_feed_list.custom_minimum_size = Vector2(460, 240)
 	add_child(_feed_list)
 
+	_overlay_row = HBoxContainer.new()
+	_overlay_row.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_overlay_row.position = Vector2(20, 46)
+	_overlay_row.add_theme_constant_override("separation", 6)
+	add_child(_overlay_row)
+
 	Simulation.core.incident_manager.incident_created.connect(_on_incident_created)
 	Simulation.core.incident_manager.incident_escalated.connect(_on_incident_escalated)
 	Simulation.core.incident_manager.incident_resolved.connect(_on_incident_resolved)
@@ -64,6 +71,24 @@ func _add_button(parent: Node, text: String, on_pressed: Callable) -> void:
 	button.text = text
 	button.pressed.connect(on_pressed)
 	parent.add_child(button)
+
+## Called once by main.gd after MapView exists -- builds the overlay
+## toggle row (spec section 41). Kept out of _ready() since it needs a
+## MapView reference to wire the buttons to.
+func wire_overlays(map_view: MapView) -> void:
+	_add_overlay_button("None", map_view, MapView.OverlayType.NONE)
+	_add_overlay_button("ASB", map_view, MapView.OverlayType.ASB)
+	_add_overlay_button("Violence", map_view, MapView.OverlayType.VIOLENCE)
+	_add_overlay_button("Burglary", map_view, MapView.OverlayType.BURGLARY)
+	_add_overlay_button("Visibility", map_view, MapView.OverlayType.VISIBILITY)
+	_add_overlay_button("Demand", map_view, MapView.OverlayType.DEMAND)
+
+func _add_overlay_button(text: String, map_view: MapView, overlay: MapView.OverlayType) -> void:
+	var button := Button.new()
+	button.text = text
+	button.add_theme_font_size_override("font_size", 12)
+	button.pressed.connect(func(): map_view.set_overlay(overlay))
+	_overlay_row.add_child(button)
 
 func refresh_stats() -> void:
 	var core: SimulationCore = Simulation.core

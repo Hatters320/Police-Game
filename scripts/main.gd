@@ -17,6 +17,7 @@ const SHIFT_DURATION_MINUTES := 12 * 60 # 12h -- spec section 15 default
 var map_view: MapView
 var hud_view: HudView
 var incident_panel: IncidentPanelView
+var unit_panel: UnitPanelView
 var camera: Camera2D
 var _briefing_view: BriefingView
 var _debrief_view: DebriefView
@@ -40,12 +41,16 @@ func _ready() -> void:
 	incident_panel = IncidentPanelView.new()
 	add_child(incident_panel)
 
+	unit_panel = UnitPanelView.new()
+	add_child(unit_panel)
+
 	map_view = MapView.new()
 	add_child(map_view)
-	map_view.setup(world, incident_panel)
+	map_view.setup(world, incident_panel, unit_panel)
 
 	hud_view = HudView.new()
 	add_child(hud_view)
+	hud_view.wire_overlays(map_view)
 	hud_view.hide()
 
 	_begin_briefing(1)
@@ -64,6 +69,7 @@ func _begin_briefing(shift_number: int) -> void:
 
 	hud_view.hide()
 	incident_panel.close()
+	unit_panel.close()
 
 	_briefing_view = BriefingView.new()
 	add_child(_briefing_view)
@@ -82,6 +88,7 @@ func _on_briefing_confirmed() -> void:
 func _on_shift_ended(summary: Dictionary) -> void:
 	hud_view.hide()
 	incident_panel.close()
+	unit_panel.close()
 
 	_debrief_view = DebriefView.new()
 	add_child(_debrief_view)
