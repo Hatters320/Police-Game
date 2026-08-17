@@ -24,8 +24,11 @@ func _ready() -> void:
 	Simulation.core.start_shift(1, 17 * 60, 12 * 60, roster, priorities, 2)
 
 	camera = Camera2D.new()
-	camera.position = Vector2(700, -600) # roughly centred on the small test map
-	camera.zoom = Vector2(0.3, 0.3) # zoomed out enough to see the whole map; scroll to adjust
+	# Centred on the small test map's actual bounding box (roughly
+	# x: -100..1650, y: -1650..950) with room to breathe -- checked against
+	# a real rendered screenshot, not guessed blind.
+	camera.position = Vector2(775, -350)
+	camera.zoom = Vector2(0.2, 0.2)
 	add_child(camera)
 	camera.make_current()
 
