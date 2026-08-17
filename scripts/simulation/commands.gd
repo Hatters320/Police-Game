@@ -27,6 +27,17 @@ func assign_unit_to_incident(unit_id: String, incident_id: String) -> Dictionary
 		return _reject("assign_unit_to_incident", "unit not available")
 	if not incident.is_open():
 		return _reject("assign_unit_to_incident", "incident already resolved")
+	if incident.state == GameEnums.IncidentState.CREATED \
+			or incident.state == GameEnums.IncidentState.REPORTED \
+			or incident.state == GameEnums.IncidentState.ASSESSED:
+		# Not yet QUEUED -- dispatching this early would start the unit
+		# travelling while the incident's own state machine has nowhere
+		# valid to jump to (QUEUED -> ASSIGNED -> TRAVELLING is the only
+		# validated path), leaving the two desynced. Reinforcing an
+		# incident already ASSIGNED/TRAVELLING/ON_SCENE/DEVELOPING is
+		# still fine and intentionally allowed below (spec section 25's
+		# "SEND MULTIPLE").
+		return _reject("assign_unit_to_incident", "incident still being assessed")
 
 	var location: LocationDefinition = _ctx.world.get_location(incident.location_id)
 	if location == null:
