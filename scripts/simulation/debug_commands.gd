@@ -13,9 +13,7 @@ func spawn_incident(type_id: String, district_id: String) -> Incident:
 	return _ctx.incident_manager.spawn_incident_for_debug(type_id, district_id, _ctx.current_minute, _ctx.rng)
 
 func complete_incident(incident_id: String) -> void:
-	var incident: Incident = _ctx.incident_manager.get_incident(incident_id)
-	if incident:
-		incident.state = GameEnums.IncidentState.RESOLVED
+	_ctx.incident_manager.force_resolve(incident_id, _ctx)
 
 func force_escalate(incident_id: String) -> void:
 	var incident: Incident = _ctx.incident_manager.get_incident(incident_id)

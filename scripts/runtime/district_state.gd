@@ -84,6 +84,18 @@ func capture_baseline() -> void:
 	for key in VARIABLE_NAMES:
 		_baseline[key] = get_variable(key)
 
+## Local save/load (spec section 47/67).
+func to_save_dict() -> Dictionary:
+	var data := {}
+	for key in VARIABLE_NAMES:
+		data[key] = get_variable(key)
+	return data
+
+func apply_save_dict(data: Dictionary) -> void:
+	for key in VARIABLE_NAMES:
+		if data.has(key):
+			set_variable(key, float(data[key]))
+
 ## Slow per-tick drift back toward the captured baseline, so a district
 ## nudged by a single patrol or incident doesn't stay pinned there forever.
 func decay_toward_baseline(dt_minutes: float) -> void:

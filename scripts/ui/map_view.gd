@@ -48,6 +48,7 @@ func setup(world: WorldMapData, incident_panel: IncidentPanelView, unit_panel: U
 	_unit_panel.closed.connect(func(): _select_unit(""))
 	_draw_static_map()
 	_spawn_unit_markers()
+	_spawn_existing_incident_markers()
 
 	Simulation.core.incident_manager.incident_created.connect(_on_incident_created)
 	Simulation.core.incident_manager.incident_state_changed.connect(_on_incident_state_changed)
@@ -138,7 +139,17 @@ func refresh_units() -> void:
 	_selected_unit_id = ""
 	_spawn_unit_markers()
 
+## Markers for incidents that already existed before this MapView was set
+## up -- i.e. carried over from a loaded save (spec section 47/67). New
+## incidents generated during play arrive via _on_incident_created instead.
+func _spawn_existing_incident_markers() -> void:
+	for incident_id in Simulation.core.incident_manager.active_incidents.keys():
+		_create_incident_marker(incident_id)
+
 func _on_incident_created(incident_id: String) -> void:
+	_create_incident_marker(incident_id)
+
+func _create_incident_marker(incident_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident == null:
 		return

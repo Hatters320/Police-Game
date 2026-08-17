@@ -29,6 +29,12 @@ func _ready() -> void:
 	Simulation.core.initialize(world, incident_types, events, 0) # 0 = random seed for a normal play session
 	Simulation.core.shift_ended.connect(_on_shift_ended)
 
+	# Local save/load (spec section 47/67) -- explicitly called here, not
+	# from SimulationCore itself, so the headless test harness (which wants
+	# a fixed, reproducible scenario) never touches a real save file as a
+	# side effect of running.
+	var next_shift_number: int = SaveManager.load_into(Simulation.core)
+
 	camera = Camera2D.new()
 	# Centred on the small test map's actual bounding box (roughly
 	# x: -100..1650, y: -1650..950) with room to breathe -- checked against
@@ -53,7 +59,7 @@ func _ready() -> void:
 	hud_view.wire_overlays(map_view)
 	hud_view.hide()
 
-	_begin_briefing(1)
+	_begin_briefing(next_shift_number)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
@@ -89,6 +95,8 @@ func _on_shift_ended(summary: Dictionary) -> void:
 	hud_view.hide()
 	incident_panel.close()
 	unit_panel.close()
+
+	SaveManager.save(Simulation.core, int(summary["shift_number"]) + 1)
 
 	_debrief_view = DebriefView.new()
 	add_child(_debrief_view)

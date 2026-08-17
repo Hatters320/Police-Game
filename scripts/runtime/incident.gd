@@ -72,6 +72,51 @@ func to_history_entry() -> IncidentHistoryEntry:
 	entry.priority = priority
 	entry.escalation_level = escalation_level
 	entry.created_at_minute = created_at_minute
+	entry.first_on_scene_minute = first_on_scene_minute
 	entry.resolved_at_minute = resolved_at_minute
 	entry.outcome_id = outcome_id
 	return entry
+
+## Local save/load (spec section 47/67). state_machine isn't serialised --
+## from_save_dict() reconstructs it fresh via the constructor, same as any
+## other new Incident.
+func to_save_dict() -> Dictionary:
+	return {
+		"id": id, "type_id": type_id, "district_id": district_id, "location_id": location_id,
+		"priority": priority, "threat": threat, "harm": harm, "vulnerability": vulnerability,
+		"immediacy": immediacy, "opportunity": opportunity,
+		"state": int(state), "escalation_level": escalation_level, "time_in_current_state": time_in_current_state,
+		"known_facts": known_facts, "unknown_facts": unknown_facts,
+		"assigned_unit_ids": assigned_unit_ids, "command_intent": int(command_intent),
+		"created_at_minute": created_at_minute, "first_on_scene_minute": first_on_scene_minute,
+		"resolved_at_minute": resolved_at_minute, "outcome_id": outcome_id,
+	}
+
+static func from_save_dict(data: Dictionary) -> Incident:
+	var incident := Incident.new(
+		String(data["id"]), String(data["type_id"]), String(data["district_id"]), String(data["location_id"]),
+		int(data["created_at_minute"])
+	)
+	incident.priority = int(data["priority"])
+	incident.threat = float(data["threat"])
+	incident.harm = float(data["harm"])
+	incident.vulnerability = float(data["vulnerability"])
+	incident.immediacy = float(data["immediacy"])
+	incident.opportunity = float(data["opportunity"])
+	incident.state = int(data["state"])
+	incident.escalation_level = int(data["escalation_level"])
+	incident.time_in_current_state = float(data["time_in_current_state"])
+	incident.known_facts = _to_string_array(data["known_facts"])
+	incident.unknown_facts = _to_string_array(data["unknown_facts"])
+	incident.assigned_unit_ids = _to_string_array(data["assigned_unit_ids"])
+	incident.command_intent = int(data["command_intent"])
+	incident.first_on_scene_minute = int(data["first_on_scene_minute"])
+	incident.resolved_at_minute = int(data["resolved_at_minute"])
+	incident.outcome_id = String(data["outcome_id"])
+	return incident
+
+static func _to_string_array(value) -> Array[String]:
+	var result: Array[String] = []
+	for item in value:
+		result.append(String(item))
+	return result

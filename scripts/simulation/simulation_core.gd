@@ -148,18 +148,21 @@ func _end_shift() -> void:
 	shift_manager.end_shift()
 	shift_ended.emit(compile_shift_summary())
 
-## Minimal debrief-shaped summary (spec section 45) -- raw counters only.
-## Full 5-dimension Poor/Developing/Good/Strong/Excellent scoring is
-## Milestone 5.
+## Debrief-shaped summary (spec section 45/46): raw counters plus the
+## 5-dimension Poor/Developing/Good/Strong/Excellent rating and a short
+## narrative, both from DebriefScorer.
 func compile_shift_summary() -> Dictionary:
 	var resolved_this_shift := 0
 	for entry: IncidentHistoryEntry in incident_manager.history:
 		if entry.resolved_at_minute >= shift_manager.shift_state.shift_start_minute:
 			resolved_this_shift += 1
+	var scores: Dictionary = DebriefScorer.score_shift(self, shift_manager.shift_state.shift_start_minute)
 	return {
 		"shift_number": shift_manager.shift_state.shift_number,
 		"resolved_this_shift": resolved_this_shift,
 		"still_open_incidents": incident_manager.active_incidents.size(),
 		"total_history_count": incident_manager.history.size(),
 		"intelligence_items": intelligence_manager.items.size(),
+		"scores": scores,
+		"narrative": DebriefScorer.narrative_summary(scores),
 	}

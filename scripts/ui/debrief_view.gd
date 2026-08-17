@@ -1,11 +1,11 @@
 class_name DebriefView
 extends CanvasLayer
-## End-of-shift debrief (spec section 45). Full 5-dimension
-## Poor/Developing/Good/Strong/Excellent scoring is Milestone 5 -- this
-## shows what's real right now: what happened this shift plus the
-## district snapshot the town carries into the next one, so the "town
-## remembers" persistence decision has a visible payoff at the moment it
-## matters most. Built via code -- see MapView's header comment for why.
+## End-of-shift debrief (spec section 45/46): a short narrative summary,
+## the 5-dimension Poor/Developing/Good/Strong/Excellent rating
+## (DebriefScorer), what happened this shift, and the district snapshot
+## the town carries into the next one -- the "town remembers" persistence
+## decision's visible payoff. Built via code -- see MapView's header
+## comment for why.
 
 signal start_next_shift
 
@@ -34,6 +34,9 @@ func setup(summary: Dictionary) -> void:
 
 	_add_title(content, "SHIFT %d DEBRIEF" % int(summary["shift_number"]))
 	_add_dim(content, "%s - %s" % [TimeFormat.clock(shift.shift_start_minute), TimeFormat.clock(shift.shift_end_minute)])
+
+	_add_line(content, String(summary.get("narrative", "")))
+	_add_performance_ratings(content, summary.get("scores", {}))
 
 	_add_section_header(content, "RESPONSE")
 	_add_line(content, "%d incident(s) resolved this shift." % int(summary["resolved_this_shift"]))
@@ -65,6 +68,33 @@ func setup(summary: Dictionary) -> void:
 	var spacer := Control.new()
 	spacer.custom_minimum_size = Vector2(0, 30)
 	content.add_child(spacer)
+
+func _add_performance_ratings(parent: Node, scores: Dictionary) -> void:
+	if scores.is_empty():
+		return
+	_add_section_header(parent, "PERFORMANCE")
+	var row := HFlowContainer.new()
+	parent.add_child(row)
+	for pair in [["response", "Response"], ["prevention", "Prevention"], ["intelligence", "Intelligence"], ["community", "Community"], ["workforce", "Workforce"]]:
+		var key: String = pair[0]
+		var label_text: String = pair[1]
+		if not scores.has(key):
+			continue
+		var s: Dictionary = scores[key]
+		var chip := Label.new()
+		chip.text = "%s: %s" % [label_text, DebriefScorer.band_text(s["band"])]
+		chip.add_theme_font_size_override("font_size", 14)
+		chip.modulate = _band_color(s["band"])
+		row.add_child(chip)
+
+func _band_color(band: DebriefScorer.Band) -> Color:
+	match band:
+		DebriefScorer.Band.POOR: return Color(0.9, 0.35, 0.3)
+		DebriefScorer.Band.DEVELOPING: return Color(0.9, 0.65, 0.3)
+		DebriefScorer.Band.GOOD: return Color(0.85, 0.85, 0.4)
+		DebriefScorer.Band.STRONG: return Color(0.5, 0.85, 0.4)
+		DebriefScorer.Band.EXCELLENT: return Color(0.4, 0.85, 0.7)
+		_: return Color.WHITE
 
 func _add_resolved_list(parent: Node, shift_start_minute: int) -> void:
 	var shown := 0

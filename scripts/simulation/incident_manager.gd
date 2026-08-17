@@ -28,6 +28,11 @@ func setup(type_defs: Array[IncidentTypeDefinition], world: WorldMapData) -> voi
 func get_incident(incident_id: String) -> Incident:
 	return active_incidents.get(incident_id)
 
+## Called by SaveManager after loading incidents from disk, so newly
+## generated incidents can't collide with ids restored from the save.
+func ensure_next_incident_number_above(n: int) -> void:
+	_next_incident_number = maxi(_next_incident_number, n)
+
 func get_type_definition(type_id: String) -> IncidentTypeDefinition:
 	return _type_defs.get(type_id)
 
@@ -59,6 +64,27 @@ func mark_unit_arrived(incident_id: String, current_minute: int) -> void:
 ## via tick(); this exists so DebugCommands can force one on demand.
 func spawn_incident_for_debug(type_id: String, district_id: String, current_minute: int, rng: RandomNumberGenerator) -> Incident:
 	return _create_incident(type_id, district_id, current_minute, rng)
+
+## Debug/dev tool entry point (spec section 65): resolves an incident
+## immediately regardless of its current state, running the same outcome
+## computation / unit release / history logging a natural resolution
+## does. Not just flipping a field to RESOLVED -- resolution is driven by
+## _advance_active_incidents noticing a state *change* during its tick,
+## so setting the field alone (with no tick in between) would silently
+## never actually resolve it.
+func force_resolve(incident_id: String, ctx: SimulationContext) -> void:
+	var incident: Incident = active_incidents.get(incident_id)
+	if incident == null or not incident.is_open():
+		return
+	var type_def: IncidentTypeDefinition = _type_defs.get(incident.type_id)
+	if type_def == null:
+		return
+	var old_state: GameEnums.IncidentState = incident.state
+	incident.state = GameEnums.IncidentState.RESOLVED # force, from whatever state it was in
+	incident_state_changed.emit(incident.id, old_state, incident.state)
+	_resolve(incident, type_def, ctx)
+	active_incidents.erase(incident_id)
+	history.append(incident.to_history_entry())
 
 ## Cross-shift handover (docs/ARCHITECTURE.md): called once by ShiftManager
 ## at shift end. Every still-open incident loses its assignment and steps
