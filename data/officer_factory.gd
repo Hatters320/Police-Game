@@ -10,6 +10,12 @@ extends RefCounted
 ## single/double-crewing mechanic (spec section 12) from the very first
 ## shift.
 
+const ESTABLISHMENT := 16
+const ANNUAL_LEAVE := 2
+const TRAINING := 1
+const SICKNESS := 1
+const MINIMUM_STAFFING := 10
+
 static func build_shift_roster() -> Array[Officer]:
 	return [
 		_officer("sgt_ahmed", "Sgt. Ahmed", GameEnums.OfficerRank.SERGEANT, GameEnums.OfficerExperience.HIGH, true,

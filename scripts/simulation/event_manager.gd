@@ -20,6 +20,12 @@ func active_events() -> Array[EventDefinition]:
 			result.append(event)
 	return result
 
+## Every scheduled event regardless of whether it's currently active --
+## the briefing screen needs this to show "here's what's planned today"
+## before any of them have started.
+func all_events() -> Array[EventDefinition]:
+	return _all_events
+
 func tick(ctx: SimulationContext) -> void:
 	var minute_of_day: int = ctx.current_minute % (24 * 60)
 	for event in _all_events:

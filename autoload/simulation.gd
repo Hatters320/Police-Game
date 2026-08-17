@@ -9,7 +9,9 @@ var core: SimulationCore = SimulationCore.new()
 
 func _process(delta: float) -> void:
 	if core.world == null:
-		return # not initialized yet (no briefing confirmed / shift started)
+		return # initialize() hasn't run yet
+	if not core.shift_manager.shift_state.briefing_confirmed:
+		return # on the briefing or debrief screen -- clock stays paused
 	core.advance_real_time(delta)
 
 ## Presentation calls these instead of reaching into `core` directly, so

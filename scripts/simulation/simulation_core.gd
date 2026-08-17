@@ -71,10 +71,27 @@ func initialize(
 	commands.setup(ctx)
 	debug_commands.setup(ctx)
 
-## Briefing -> start_shift (spec section 16). `roster` is this shift's
-## staffing (establishment minus leave/sickness/training, spec section 8);
-## district/incident state already exists from initialize() or the
-## previous shift and is untouched here.
+## Forms this shift's roster/units and opens the clock window, but leaves
+## it unconfirmed -- spec section 16's briefing screen needs the units to
+## already exist so the player can task them (patrol location, reserve),
+## and needs the clock NOT running while they decide. `roster` is this
+## shift's staffing (establishment minus leave/sickness/training, spec
+## section 8); district/incident state already exists from initialize()
+## or the previous shift and is untouched here.
+func prepare_shift(shift_number: int, start_minute: int, duration_minutes: int, roster: Array[Officer]) -> void:
+	officer_manager.set_roster(roster)
+	var station: LocationDefinition = world.get_location(world.police_station_location_id)
+	resource_manager.form_units(officer_manager.available_officers(), station)
+	shift_manager.prepare_shift(shift_number, start_minute, duration_minutes)
+	game_clock.total_minutes = start_minute
+
+## Confirms the briefing (spec section 16's "confirm the shift plan") --
+## the clock starts ticking from this point on.
+func confirm_briefing(priorities: Array[String], reserve_target: int) -> void:
+	shift_manager.confirm_briefing(priorities, reserve_target)
+
+## Convenience for callers that don't need a real briefing pause (the
+## headless harness): prepares and confirms in one call.
 func start_shift(
 	shift_number: int,
 	start_minute: int,
@@ -83,11 +100,8 @@ func start_shift(
 	priorities: Array[String],
 	reserve_target: int
 ) -> void:
-	officer_manager.set_roster(roster)
-	var station: LocationDefinition = world.get_location(world.police_station_location_id)
-	resource_manager.form_units(officer_manager.available_officers(), station)
-	shift_manager.start_shift(shift_number, start_minute, duration_minutes, priorities, reserve_target)
-	game_clock.total_minutes = start_minute
+	prepare_shift(shift_number, start_minute, duration_minutes, roster)
+	confirm_briefing(priorities, reserve_target)
 
 ## Called from the Simulation autoload's _process(delta). Presentation
 ## never calls this or _tick_sim directly -- only through Commands.
@@ -125,6 +139,12 @@ func _tick_sim(dt_minutes: int) -> void:
 
 func _end_shift() -> void:
 	incident_manager.apply_shift_handover()
+	# Stops the Simulation autoload from ticking (it gates on
+	# briefing_confirmed) until the next prepare_shift/confirm_briefing --
+	# without this, the very next frame's tick would push current_minute
+	# past shift_end_minute again and re-trigger _end_shift() every tick
+	# forever.
+	shift_manager.shift_state.briefing_confirmed = false
 	shift_manager.end_shift()
 	shift_ended.emit(compile_shift_summary())
 

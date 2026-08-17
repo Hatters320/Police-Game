@@ -5,9 +5,12 @@ extends RefCounted
 ## silently no-ops. Owned and wired up by SimulationCore with a
 ## SimulationContext giving access to every manager it needs.
 ##
-## Reassignment-with-preview (spec section 27 -- show consequences before
-## confirming) is deferred to Milestone 3 when there's a UI to preview into;
-## assign_unit_to_incident here is the direct dispatch path.
+## assign_unit_to_incident doubles as the reassignment path (spec section
+## 27): sending an already-busy unit elsewhere pulls it off its current
+## incident first. The "show consequences before confirming" part isn't a
+## separate preview/confirm step -- IncidentPanelView always shows what a
+## unit is currently doing right next to the button that would reassign
+## it, so the information is visible before the click rather than after.
 
 signal command_rejected(command_name: String, reason: String)
 
@@ -23,7 +26,7 @@ func assign_unit_to_incident(unit_id: String, incident_id: String) -> Dictionary
 		return _reject("assign_unit_to_incident", "unknown unit")
 	if incident == null:
 		return _reject("assign_unit_to_incident", "unknown incident")
-	if unit.status != GameEnums.UnitStatus.AVAILABLE and unit.status != GameEnums.UnitStatus.PATROL:
+	if unit.status == GameEnums.UnitStatus.ON_BREAK or unit.status == GameEnums.UnitStatus.UNAVAILABLE:
 		return _reject("assign_unit_to_incident", "unit not available")
 	if not incident.is_open():
 		return _reject("assign_unit_to_incident", "incident already resolved")
@@ -38,6 +41,17 @@ func assign_unit_to_incident(unit_id: String, incident_id: String) -> Dictionary
 		# still fine and intentionally allowed below (spec section 25's
 		# "SEND MULTIPLE").
 		return _reject("assign_unit_to_incident", "incident still being assessed")
+	if unit.current_incident_id == incident_id:
+		return _reject("assign_unit_to_incident", "already assigned to this incident")
+
+	# Unit is committed elsewhere (AVAILABLE/PATROL units simply have no
+	# current_incident_id set, so this only fires for a genuine
+	# reassignment) -- free it from the old incident first so that
+	# incident doesn't keep a ghost assignment to a unit that's now gone.
+	if unit.current_incident_id != "":
+		var old_incident: Incident = _ctx.incident_manager.get_incident(unit.current_incident_id)
+		if old_incident:
+			old_incident.assigned_unit_ids.erase(unit_id)
 
 	var location: LocationDefinition = _ctx.world.get_location(incident.location_id)
 	if location == null:
@@ -46,6 +60,8 @@ func assign_unit_to_incident(unit_id: String, incident_id: String) -> Dictionary
 	var path: PackedVector2Array = _ctx.road_graph.get_path(unit.current_road_node_id, location.nearest_road_node_id)
 	unit.begin_travel(path, location.nearest_road_node_id, location.id)
 	unit.current_incident_id = incident_id
+	unit.patrol_mode = GameEnums.PatrolMode.RESERVE
+	unit.patrol_location_id = ""
 	incident.assigned_unit_ids.append(unit_id)
 
 	if incident.state == GameEnums.IncidentState.QUEUED:
@@ -68,6 +84,63 @@ func request_information(incident_id: String) -> Dictionary:
 	if fact == "":
 		return _reject("request_information", "no further information available")
 	return {"result": GameEnums.CommandResultCode.OK, "fact": fact}
+
+## Pulls a unit off whatever incident it's on (if any) and returns it to
+## AVAILABLE, without sending it anywhere else -- the "stand it down, I
+## didn't need backup after all" action alongside assign_unit_to_incident's
+## reassign-to-somewhere-else path.
+func stand_down_unit(unit_id: String) -> Dictionary:
+	var unit: PoliceUnit = _ctx.resource_manager.get_unit(unit_id)
+	if unit == null:
+		return _reject("stand_down_unit", "unknown unit")
+	if unit.current_incident_id != "":
+		var incident: Incident = _ctx.incident_manager.get_incident(unit.current_incident_id)
+		if incident:
+			incident.assigned_unit_ids.erase(unit_id)
+	unit.current_incident_id = ""
+	unit.command_intent = GameEnums.CommandIntent.NONE
+	unit.status = GameEnums.UnitStatus.AVAILABLE
+	unit.patrol_mode = GameEnums.PatrolMode.RESERVE
+	unit.patrol_location_id = ""
+	return {"result": GameEnums.CommandResultCode.OK}
+
+## Directed patrol tasking (spec section 18): sends an available unit to a
+## location, where ResourceManager.tick applies police-visibility/crime
+## suppression to that location's district for as long as it stays there.
+## Withdrawn the moment the unit leaves (reassigned, sent on break, etc.)
+## since patrol presence is computed live off the unit's current status.
+func set_directed_patrol(unit_id: String, location_id: String) -> Dictionary:
+	var unit: PoliceUnit = _ctx.resource_manager.get_unit(unit_id)
+	if unit == null:
+		return _reject("set_directed_patrol", "unknown unit")
+	if unit.status != GameEnums.UnitStatus.AVAILABLE:
+		return _reject("set_directed_patrol", "unit not available")
+	var location: LocationDefinition = _ctx.world.get_location(location_id)
+	if location == null:
+		return _reject("set_directed_patrol", "unknown location")
+	var path: PackedVector2Array = _ctx.road_graph.get_path(unit.current_road_node_id, location.nearest_road_node_id)
+	unit.begin_travel(path, location.nearest_road_node_id, location.id)
+	unit.patrol_mode = GameEnums.PatrolMode.DIRECTED
+	unit.patrol_location_id = location_id
+	return {"result": GameEnums.CommandResultCode.OK}
+
+## Recalls a unit from directed patrol back to the station, becoming
+## AVAILABLE once it arrives (handled by ResourceManager.tick the same way
+## as any other arrival with no incident/patrol destination).
+func recall_to_station(unit_id: String) -> Dictionary:
+	var unit: PoliceUnit = _ctx.resource_manager.get_unit(unit_id)
+	if unit == null:
+		return _reject("recall_to_station", "unknown unit")
+	if unit.status != GameEnums.UnitStatus.PATROL:
+		return _reject("recall_to_station", "unit is not on patrol")
+	var station: LocationDefinition = _ctx.world.get_location(_ctx.world.police_station_location_id)
+	if station == null:
+		return _reject("recall_to_station", "police station not found")
+	unit.patrol_mode = GameEnums.PatrolMode.RESERVE
+	unit.patrol_location_id = ""
+	var path: PackedVector2Array = _ctx.road_graph.get_path(unit.current_road_node_id, station.nearest_road_node_id)
+	unit.begin_travel(path, station.nearest_road_node_id, "")
+	return {"result": GameEnums.CommandResultCode.OK}
 
 func send_for_break(unit_id: String) -> Dictionary:
 	var unit: PoliceUnit = _ctx.resource_manager.get_unit(unit_id)

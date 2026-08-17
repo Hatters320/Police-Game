@@ -28,6 +28,9 @@ func setup(type_defs: Array[IncidentTypeDefinition], world: WorldMapData) -> voi
 func get_incident(incident_id: String) -> Incident:
 	return active_incidents.get(incident_id)
 
+func get_type_definition(type_id: String) -> IncidentTypeDefinition:
+	return _type_defs.get(type_id)
+
 func open_incidents_in_district(district_id: String) -> Array[Incident]:
 	var result: Array[Incident] = []
 	for incident: Incident in active_incidents.values():

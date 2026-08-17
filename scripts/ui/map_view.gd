@@ -2,19 +2,16 @@ class_name MapView
 extends Node2D
 ## Draws the map (roads, locations, district boundaries) and manages
 ## UnitMarker/IncidentMarker child nodes reactively via SimulationCore's
-## signals (spec section 35-37), plus click-to-select-a-unit /
-## click-to-dispatch-to-an-incident. No art assets yet -- everything is
-## drawn with simple primitives, which is honest about where this is in
-## the phased plan (spec section 54: readable and mobile-friendly matters
-## far more than polish this early) rather than faking it.
+## signals (spec section 35-37). No art assets yet -- everything is drawn
+## with simple primitives, which is honest about where this is in the
+## phased plan (spec section 54: readable and mobile-friendly matters far
+## more than polish this early) rather than faking it.
 ##
-## Manual assignment via clicking is the ONLY dispatch path in Milestone 2
-## -- no auto-dispatch. Undispatched incidents queue up and can escalate,
-## which is real gameplay feedback (resource scarcity, spec section 51),
-## not a bug. The full incident information panel (known/unknown facts,
-## command intent, SEND/HOLD/REQUEST INFO) is Milestone 3; this is
-## deliberately just enough interaction to make the map feel played, not
-## only watched.
+## Clicking a unit is a lightweight visual select (no functional effect);
+## clicking an incident marker opens IncidentPanelView, which owns every
+## actual dispatch/reassign/recall/intent action (spec section 25-27) --
+## Milestone 2's click-unit-then-click-incident quick-dispatch shortcut is
+## gone, replaced by the panel it was always meant to lead to.
 
 const PRIORITY_COLORS := {
 	1: Color(0.85, 0.15, 0.15), # critical -- red
@@ -27,12 +24,14 @@ const PRIORITY_COLORS := {
 const CLICK_RADIUS := 40.0
 
 var _world: WorldMapData
+var _incident_panel: IncidentPanelView
 var _unit_markers: Dictionary = {} # unit_id -> UnitMarker
 var _incident_markers: Dictionary = {} # incident_id -> IncidentMarker
 var _selected_unit_id: String = ""
 
-func setup(world: WorldMapData) -> void:
+func setup(world: WorldMapData, incident_panel: IncidentPanelView) -> void:
 	_world = world
+	_incident_panel = incident_panel
 	_draw_static_map()
 	_spawn_unit_markers()
 
@@ -114,6 +113,16 @@ func _spawn_unit_markers() -> void:
 		marker.setup(unit)
 		_unit_markers[unit.id] = marker
 
+## Called by main.gd whenever a new shift forms a new roster/units --
+## Milestone 1/2's units don't persist across shifts the way districts and
+## incidents do, so their markers need rebuilding from scratch.
+func refresh_units() -> void:
+	for marker in _unit_markers.values():
+		marker.queue_free()
+	_unit_markers.clear()
+	_selected_unit_id = ""
+	_spawn_unit_markers()
+
 func _on_incident_created(incident_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident == null:
@@ -127,18 +136,26 @@ func _on_incident_created(incident_id: String) -> void:
 func _on_incident_state_changed(incident_id: String, _old_state: GameEnums.IncidentState, _new_state: GameEnums.IncidentState) -> void:
 	if _incident_markers.has(incident_id):
 		_incident_markers[incident_id].refresh()
+	if _incident_panel and _incident_panel.is_open_for(incident_id):
+		_incident_panel.refresh()
 
 func _on_incident_resolved(incident_id: String, _outcome_id: String) -> void:
 	if _incident_markers.has(incident_id):
 		_incident_markers[incident_id].queue_free()
 		_incident_markers.erase(incident_id)
-	# A resolved incident's marker is removed from _incident_markers above,
-	# so it's simply no longer clickable -- no need to also clear whatever
-	# unit the player currently has selected for an unrelated dispatch.
+	if _incident_panel and _incident_panel.is_open_for(incident_id):
+		_incident_panel.close()
 
 func _on_tick_completed() -> void:
 	for unit_id in _unit_markers.keys():
 		_unit_markers[unit_id].on_tick()
+	# Assigned/available lists in an open panel change as units move and
+	# arrive even without an explicit state-change signal (e.g. a unit
+	# reaching ON_SCENE updates its own status but that's driven by
+	# ResourceManager.tick, not an incident signal) -- cheap to just
+	# refresh every tick while a panel is actually open.
+	if _incident_panel and _incident_panel.visible:
+		_incident_panel.refresh()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -153,25 +170,14 @@ func _handle_click(click_pos: Vector2) -> void:
 	for incident_id in _incident_markers.keys():
 		var marker: IncidentMarker = _incident_markers[incident_id]
 		if marker.position.distance_to(click_pos) <= CLICK_RADIUS:
-			_try_dispatch_to(incident_id)
+			if _incident_panel:
+				_incident_panel.open(incident_id)
 			return
-	_select_unit("") # clicked empty space -- deselect
+	_select_unit("") # clicked empty space -- deselect, and leave any open panel as-is
 
 func _select_unit(unit_id: String) -> void:
 	if _selected_unit_id != "" and _unit_markers.has(_selected_unit_id):
 		_unit_markers[_selected_unit_id].set_selected(false)
-	_selected_unit_id = ""
-	if unit_id == "":
-		return
-	var unit: PoliceUnit = Simulation.core.resource_manager.get_unit(unit_id)
-	if unit == null or (unit.status != GameEnums.UnitStatus.AVAILABLE and unit.status != GameEnums.UnitStatus.PATROL):
-		return # can't select a unit that isn't free to dispatch
 	_selected_unit_id = unit_id
-	_unit_markers[unit_id].set_selected(true)
-
-func _try_dispatch_to(incident_id: String) -> void:
-	if _selected_unit_id == "":
-		return
-	var result: Dictionary = Simulation.commands().assign_unit_to_incident(_selected_unit_id, incident_id)
-	if result["result"] == GameEnums.CommandResultCode.OK:
-		_select_unit("")
+	if unit_id != "" and _unit_markers.has(unit_id):
+		_unit_markers[unit_id].set_selected(true)

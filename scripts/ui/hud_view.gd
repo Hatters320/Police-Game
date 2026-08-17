@@ -8,8 +8,6 @@ extends CanvasLayer
 ## docs/ARCHITECTURE.md's "signals fire / UI refreshes on meaningful
 ## change" performance discipline.
 
-const MIN_STAFFING := 10
-
 var _time_label: Label
 var _units_label: Label
 var _incidents_label: Label
@@ -52,8 +50,8 @@ func _ready() -> void:
 	Simulation.core.incident_manager.incident_escalated.connect(_on_incident_escalated)
 	Simulation.core.incident_manager.incident_resolved.connect(_on_incident_resolved)
 	Simulation.core.fatigue_manager.fatigue_warning.connect(_on_fatigue_warning)
-	Simulation.core.tick_completed.connect(_refresh_stats)
-	_refresh_stats()
+	Simulation.core.tick_completed.connect(refresh_stats)
+	refresh_stats()
 
 func _add_stat_label(parent: Node) -> Label:
 	var label := Label.new()
@@ -67,15 +65,20 @@ func _add_button(parent: Node, text: String, on_pressed: Callable) -> void:
 	button.pressed.connect(on_pressed)
 	parent.add_child(button)
 
-func _refresh_stats() -> void:
+func refresh_stats() -> void:
 	var core: SimulationCore = Simulation.core
 	var shift: ShiftState = core.shift_manager.shift_state
 	_time_label.text = "%s  (shift %s-%s)" % [
-		shift.time_of_day_string(), _minute_to_clock(shift.shift_start_minute), _minute_to_clock(shift.shift_end_minute),
+		shift.time_of_day_string(), TimeFormat.clock(shift.shift_start_minute), TimeFormat.clock(shift.shift_end_minute),
 	]
-	_units_label.text = "%d AVAILABLE" % core.resource_manager.available_units().size()
+	var available_count: int = core.resource_manager.available_units().size()
+	_units_label.text = "%d AVAILABLE" % available_count
+	# Spec section 19: warn when reserve is running dangerously low, rather
+	# than forcing a fixed minimum -- the right number depends on what's
+	# happening, so this is a signal, not a hard rule.
+	_units_label.modulate = Color(0.95, 0.45, 0.25) if available_count < shift.reserve_target else Color.WHITE
 	_incidents_label.text = "%d ACTIVE" % core.incident_manager.active_incidents.size()
-	_staffing_label.text = "%d/%d MINIMUM" % [core.officer_manager.officers.size(), MIN_STAFFING]
+	_staffing_label.text = "%d/%d MINIMUM" % [core.officer_manager.officers.size(), OfficerFactory.MINIMUM_STAFFING]
 	_fatigue_label.text = "%d FATIGUE WARNINGS" % _fatigue_warning_count
 
 func _on_fatigue_warning(officer_id: String) -> void:
@@ -104,7 +107,3 @@ func _append_feed(text: String) -> void:
 	_feed_list.add_child(label)
 	if _feed_list.get_child_count() > 12:
 		_feed_list.get_child(0).queue_free()
-
-func _minute_to_clock(total_minute: int) -> String:
-	var minute_of_day: int = total_minute % (24 * 60)
-	return "%02d:%02d" % [minute_of_day / 60, minute_of_day % 60]

@@ -78,17 +78,38 @@ func available_units() -> Array[PoliceUnit]:
 	return result
 
 ## Advances every travelling unit along its cached path (computed once at
-## dispatch by Commands, never recomputed here) and notifies IncidentManager
-## the moment a unit assigned to an incident arrives.
+## dispatch by Commands, never recomputed here), notifies IncidentManager
+## the moment a unit assigned to an incident arrives, and applies patrol
+## presence for every unit currently on station at a directed patrol point
+## (spec section 18) -- withdrawn automatically the moment a unit's status
+## changes away from PATROL, since this is computed fresh each tick rather
+## than toggled on/off by whoever moves the unit.
 func tick(ctx: SimulationContext) -> void:
 	for unit: PoliceUnit in units.values():
-		if unit.status != GameEnums.UnitStatus.TRAVELLING:
-			continue
-		var arrived: bool = unit.advance_along_path(BASE_SPEED_UNITS_PER_MIN * ctx.dt_minutes)
-		if not arrived:
-			continue
-		if unit.current_incident_id != "":
-			unit.status = GameEnums.UnitStatus.ON_SCENE
-			ctx.incident_manager.mark_unit_arrived(unit.current_incident_id, ctx.current_minute)
-		else:
-			unit.status = GameEnums.UnitStatus.AVAILABLE
+		match unit.status:
+			GameEnums.UnitStatus.TRAVELLING:
+				_advance_travel(unit, ctx)
+			GameEnums.UnitStatus.PATROL:
+				_apply_patrol_presence(unit, ctx)
+			_:
+				pass
+
+func _advance_travel(unit: PoliceUnit, ctx: SimulationContext) -> void:
+	var arrived: bool = unit.advance_along_path(BASE_SPEED_UNITS_PER_MIN * ctx.dt_minutes)
+	if not arrived:
+		return
+	if unit.current_incident_id != "":
+		unit.status = GameEnums.UnitStatus.ON_SCENE
+		ctx.incident_manager.mark_unit_arrived(unit.current_incident_id, ctx.current_minute)
+	elif unit.patrol_mode == GameEnums.PatrolMode.DIRECTED and unit.patrol_location_id != "":
+		unit.status = GameEnums.UnitStatus.PATROL
+	else:
+		unit.status = GameEnums.UnitStatus.AVAILABLE
+
+func _apply_patrol_presence(unit: PoliceUnit, ctx: SimulationContext) -> void:
+	if unit.patrol_location_id == "":
+		return
+	var location: LocationDefinition = ctx.world.get_location(unit.patrol_location_id)
+	if location == null:
+		return
+	ctx.district_manager.apply_patrol(location.district_id, ctx.dt_minutes)
