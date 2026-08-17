@@ -47,20 +47,34 @@ about, to avoid over-building the MVP:**
   `EventDefinition`/`IncidentTypeDefinition` (data-driven), not a general
   causality graph engine.
 
-**Genuine ambiguity worth flagging (architecture-affecting):** §47 says the
-town must "remember" between shifts, and gives district-variable drift as
-the example. It doesn't say whether an incident that's still active when
-the shift clock runs out literally continues as a live `Incident` object
-into the next shift, or is administratively closed out and only its
-*effect* (a bump to `incident_pressure`/district variables) persists.
-**Default I'm building to:** incidents do not survive across the shift
-boundary as live objects — every open incident is closed out at shift-end
-with a "carried over" outcome that feeds district state, and the next
-shift starts with a clean incident list. This keeps `Incident` lifecycle
-and the save-file schema far simpler, and still satisfies "the town
-remembers" via district state. Flag if you want literal incident
-continuity instead — it's a bigger change (save format, `ShiftManager`,
-debrief logic) so better to settle it now than mid-build.
+**Decided: incidents have real cross-shift history.** §47 says the town
+must "remember" between shifts. Confirmed scope: incidents that are still
+open when the shift clock runs out survive as live `Incident` objects into
+the next shift — they do not get force-resolved or reduced to a district
+stat. `IncidentManager` also keeps a permanent, ever-growing
+`incident_history` log of every incident that has ever reached
+OUTCOME (lightweight immutable snapshots, not full mutable objects — see
+§4), which feeds intelligence ("repeated incidents", §43), the debrief's
+"what happened" (§45), and eventually pattern-based incident probability.
+
+This needs one explicit handover rule, since the *officers* assigned to an
+open incident go off duty at shift-end even though the incident itself
+doesn't: **at shift end, every incident not yet in RESOLVED/OUTCOME has its
+`assigned_unit_ids` cleared and its state reset no further forward than
+QUEUED** (an incident still in CREATED/REPORTED/ASSESSED just stays where
+it is). It reappears in the next shift's briefing as backlog for the new
+Inspector to triage and reassign — nothing else about it resets.
+Escalation needs no special-case for the boundary: it's already driven by
+elapsed time since report / time unassigned, and time doesn't stop between
+shifts even though staffing does, so an incident left open across a
+handover keeps accruing escalation pressure exactly as it would mid-shift.
+This is a good sign for the architecture — the rule "falls out" of pieces
+that already had to exist, rather than needing new machinery.
+
+Consequence for the save file: it must persist `active_incidents` (full
+state, to resume) and `incident_history` (growing snapshot log) alongside
+district/community state — not just the district variables originally
+scoped in §47.
 
 ---
 
@@ -356,14 +370,6 @@ a decision that changes the architecture either way, so defaulting to GUT
 unless you'd rather not.
 
 ---
-
-## Open question worth your call before Milestone 1 starts
-
-The persistence-boundary assumption in §1–2 (incidents don't survive the
-shift boundary as live objects; only their effect on district state
-does) shapes `Incident` lifecycle and the save schema. I'm building to
-that default. Say so if you want literal cross-shift incident continuity
-instead — worth deciding now rather than mid-build.
 
 Everything else above is either directly specified already or a minor
 implementation call within spec §73's "simplest reasonable default" rule.

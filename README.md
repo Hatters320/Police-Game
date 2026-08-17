@@ -11,18 +11,41 @@ a repo, branch, or Supabase project with that app.
 
 ## Status
 
-Pre-implementation. See [`docs/SPEC.md`](docs/SPEC.md) for the full MVP
-design and technical brief. No code has been written yet — the next step is
-a technical architecture analysis against this spec, then a small prototype
-that proves the core loop (brief → plan → incident → decision →
-consequence → reassess) before building the full town.
+**Milestone 1 (headless simulation core) written, not yet run.** See
+[`docs/SPEC.md`](docs/SPEC.md) for the full MVP design and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the technical analysis
+and phased plan this was built against.
+
+The simulation layer (game clock, shift/district/officer/resource/incident/
+event/fatigue/community/intelligence managers, incident state machine,
+probability/outcome engines, cross-shift incident persistence) exists and
+is wired together in `SimulationCore`, driven by a small 3-district test
+map and 5 incident types, with a headless debug harness that runs a full
+12h shift and prints a shift log. **This has not been executed** — Godot
+isn't installed in the sandbox this was written in, and the sandbox's
+network policy blocks fetching the engine binary. See
+[`tests/README.md`](tests/README.md) for how to run it and what to check.
+No scenes, map, or UI exist yet (Milestone 2+).
 
 ## Engine
 
-Godot 4.x, 2D with isometric/angled presentation, built mobile/touch-first.
+Godot 4.x (written against 4.3+ syntax), 2D with isometric/angled
+presentation, built mobile/touch-first.
 
 ## Project layout
 
-Not yet created — see `docs/SPEC.md` section 60 for the target structure
-(`scenes/`, `scripts/simulation/`, `scripts/world/`, `scripts/units/`,
-`scripts/incidents/`, `scripts/ui/`, `data/`, `assets/`, `tests/`).
+```
+autoload/simulation.gd     Thin Node wrapper around one SimulationCore instance
+scripts/core/               Shared enums
+scripts/world/               Static map data (Resource): districts, locations, road graph
+scripts/runtime/             Mutable simulation state (RefCounted): officers, units, incidents...
+scripts/incidents/           Incident type definitions + probability/outcome engines
+scripts/simulation/          Managers + SimulationCore (the composition root)
+data/                         Small-test-map + starter content, built in code (see tests/README.md)
+tests/                        Headless debug harness
+docs/                         Spec + architecture analysis
+```
+
+See `docs/ARCHITECTURE.md` section 3 for the reasoning behind this
+structure, and section 9 for what Milestones 2+ (map, UI, full Westford
+town) still need to add.

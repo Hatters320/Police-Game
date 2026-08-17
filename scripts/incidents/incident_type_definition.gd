@@ -1,0 +1,48 @@
+class_name IncidentTypeDefinition
+extends Resource
+## Static definition for one incident type (spec section 21). Adding a new
+## incident type should mean a new instance of this (data), never new code
+## -- spec section 59.
+
+@export var id: String
+@export var display_name: String
+
+## Priority-input baselines (spec section 24); the probability engine adds
+## random variance per instance. See IncidentProbabilityEngine.roll_priority_inputs.
+@export var base_threat: float = 20.0
+@export var base_harm: float = 20.0
+@export var base_vulnerability: float = 10.0
+@export var base_immediacy: float = 20.0
+@export var base_opportunity: float = 10.0
+
+## Expected incidents of this type per simulated hour, town-wide, before any
+## district/time/event modifiers.
+@export var base_rate_per_hour: float = 0.05
+
+## DistrictState variable name (e.g. "night_economy") -> multiplier. Points
+## above the neutral midpoint (50) scale the rate up by this factor (points
+## below scale it down); see IncidentProbabilityEngine._weight_for.
+@export var district_weight_factors: Dictionary = {}
+
+## True for types whose rate should rise during evening/night hours (spec
+## section 7/33 -- night-time economy disorder).
+@export var night_weighted: bool = false
+
+## Array of Dictionaries: {id: String, display_name: String, base_weight:
+## float, favoured_skill: String, favoured_intent: GameEnums.CommandIntent}.
+## See IncidentOutcomeEngine.
+@export var possible_outcomes: Array[Dictionary] = []
+
+## GameEnums.IncidentState (int) -> simulated minutes typically spent in
+## that state once reached. See IncidentManager.
+@export var state_durations: Dictionary = {}
+
+## Escalation risk added per simulated minute an incident spends unassigned
+## past its priority's expected response window -- see IncidentManager.
+@export var escalation_risk_per_minute: float = 0.01
+
+@export var known_fact_templates: Array[String] = []
+@export var unknown_fact_templates: Array[String] = []
+
+func state_duration(state: GameEnums.IncidentState, fallback: float = 10.0) -> float:
+	return state_durations.get(state, fallback)
