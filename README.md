@@ -11,8 +11,10 @@ a repo, branch, or Supabase project with that app.
 
 ## Status
 
-**Milestones 1-3 built and verified against the real engine (Godot 4.7.1).**
-See [`docs/SPEC.md`](docs/SPEC.md) for the full MVP design and
+**Milestones 1-5 built and verified against the real engine (Godot 4.7.1).**
+The core MVP loop from `docs/SPEC.md` is playable end to end, including
+local persistence across separate play sessions. See
+[`docs/SPEC.md`](docs/SPEC.md) for the full MVP design and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the technical analysis
 and phased plan this was built against.
 
@@ -20,43 +22,52 @@ and phased plan this was built against.
   officer/resource/incident/event/fatigue/community/intelligence managers,
   incident state machine, probability/outcome engines, cross-shift
   incident persistence — all wired together in `SimulationCore`, driven by
-  a small 3-district test map and 5 incident types. Confirmed running a
-  full 12h shift end to end with no errors: correct crew formation (12
-  officers → 6 units), incident generation/dispatch/resolution,
-  intelligence capture, shift debrief compilation.
+  a small 3-district test map and 5 incident types.
 - **Milestone 2 — minimal map + live visuals.** The small test map (roads,
   locations, district outlines), police units moving between them,
   colour-coded incident markers, a top HUD, pause/1x/2x/4x, an event feed.
-- **Milestone 3 — briefing, incident panel, debrief.** The full loop now
-  plays: a pre-shift briefing (staffing, intelligence, community issues,
-  planned events, priorities, per-unit patrol tasking, reserve target) ->
-  confirm -> live play, where clicking an incident marker opens a full
-  panel (known/unknown facts + Request Information, command intent,
-  assigned units + Recall, every other unit + Send/Reassign) -> a debrief
-  at shift end (what resolved, what's still open and carried into the
-  next shift, district snapshot) -> Start Next Shift, looping back to a
-  fresh briefing with the same persistent district/incident state. Every
-  stage of this loop has been run against the real engine and
-  screenshotted, including confirming a still-open incident survives the
-  shift boundary as the same object (reset to queued, not discarded).
+- **Milestone 3 — briefing, incident panel, debrief.** Pre-shift briefing
+  (staffing, intelligence, community issues, planned events, priorities,
+  per-unit patrol tasking, reserve target) -> confirm -> live play, where
+  clicking an incident marker opens a full panel (known/unknown facts +
+  Request Information, command intent, assigned units + Recall, every
+  other unit + Send/Reassign) -> a debrief at shift end -> Start Next
+  Shift, looping back to a fresh briefing with the same persistent
+  district/incident state.
+- **Milestone 4 — unit welfare + map overlays.** Click a unit marker to
+  see each crew member's fatigue/morale and send it for a break or recall
+  it from patrol. ASB/Violence/Burglary/Visibility/Demand overlay toggles
+  tint the districts, with low intelligence quality blurring the displayed
+  value so uncertainty is visible, not just told.
+- **Milestone 5 — save/load + real debrief scoring.** Local JSON save of
+  district state, incident history, and still-open incidents (no online
+  accounts, per spec section 67) -- confirmed loading correctly in a
+  completely separate process launch. The debrief now shows a real
+  5-dimension Response/Prevention/Intelligence/Community/Workforce rating
+  (Poor through Excellent) and a short narrative summary, not just raw
+  counters.
+
+Every milestone above has been run against the real engine and
+screenshotted at each stage, not shipped on the strength of the code
+reading right — including forcing a save, killing the process, and
+launching a fresh one to confirm the load path actually works.
 
 `scenes/main/main.tscn` is the project's main scene — open the project in
 the Godot editor and press Run/F5 to play it. See
 [`tests/README.md`](tests/README.md) for how to run both the visual scene
 and the headless Milestone 1 harness yourself.
 
-**One open finding from Milestone 1's verification, not yet acted on:**
-natural incident generation over a 12h shift came out lower than a rough
-estimate suggested (~5 incidents vs. ~18 expected), likely because several
-district starting values sit below the neutral midpoint the probability
-weighting is centred on, systematically damping rates. Worth tuning after
-real playtesting rather than guessing further from one seeded run — a
-quiet start is arguably consistent with spec section 7 anyway.
+**One open finding, not yet acted on:** natural incident generation over a
+12h shift came out lower than a rough estimate suggested (~5 incidents vs.
+~18 expected), likely because several district starting values sit below
+the neutral midpoint the probability weighting is centred on,
+systematically damping rates. Worth tuning after real playtesting rather
+than guessing further from one seeded run — a quiet start is arguably
+consistent with spec section 7 anyway.
 
-No specialist units (traffic/dog/firearms), neighbourhood team, or map
-overlays yet (Milestone 4+). Debrief scoring is raw counters and a
-district snapshot, not the full 5-dimension Poor/Developing/Good/Strong/
-Excellent rating (Milestone 5).
+No specialist units (traffic/dog/firearms), neighbourhood team, or the
+full 6-district Westford town yet (Milestone 6+) — still the small
+3-district test map throughout.
 
 ## Engine
 
@@ -71,8 +82,8 @@ scripts/core/               Shared enums, time formatting
 scripts/world/               Static map data (Resource): districts, locations, road graph
 scripts/runtime/             Mutable simulation state (RefCounted): officers, units, incidents...
 scripts/incidents/           Incident type definitions + probability/outcome engines
-scripts/simulation/          Managers + SimulationCore (the composition root)
-scripts/ui/                  MapView/HudView/BriefingView/IncidentPanelView/DebriefView/markers --
+scripts/simulation/          Managers + SimulationCore (composition root) + SaveManager + DebriefScorer
+scripts/ui/                  MapView/HudView/BriefingView/(Incident|Unit)PanelView/DebriefView/markers --
                               Presentation, built via code not .tscn
 scripts/main.gd              Scene entry point: owns the briefing->play->debrief->briefing loop
 scenes/main/main.tscn        The only hand-authored scene file -- a bare root + script
