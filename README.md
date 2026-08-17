@@ -11,30 +11,39 @@ a repo, branch, or Supabase project with that app.
 
 ## Status
 
-**Milestones 1-2 written, not yet run.** See [`docs/SPEC.md`](docs/SPEC.md)
-for the full MVP design and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-for the technical analysis and phased plan this was built against.
+**Milestones 1-2 built and verified against the real engine (Godot 4.7.1).**
+See [`docs/SPEC.md`](docs/SPEC.md) for the full MVP design and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the technical analysis
+and phased plan this was built against.
 
 - **Milestone 1 — headless simulation core.** Game clock, shift/district/
   officer/resource/incident/event/fatigue/community/intelligence managers,
   incident state machine, probability/outcome engines, cross-shift
   incident persistence — all wired together in `SimulationCore`, driven by
-  a small 3-district test map and 5 incident types.
+  a small 3-district test map and 5 incident types. Confirmed running a
+  full 12h shift end to end with no errors: correct crew formation (12
+  officers → 6 units), incident generation/dispatch/resolution,
+  intelligence capture, shift debrief compilation.
 - **Milestone 2 — minimal map + live visuals.** `scenes/main/main.tscn` is
-  now the project's main scene — open the project in the Godot editor and
-  press Run/F5 to see the small test map (roads, locations, district
-  outlines), police units moving between them, colour-coded incident
-  markers, a top HUD, pause/1x/2x/4x, and an event feed. Click an
-  available unit then an actionable incident marker to dispatch it — that
-  replaces Milestone 1's auto-dispatch entirely, so undispatched incidents
-  now genuinely queue and can escalate.
+  the project's main scene — open it in the Godot editor and press Run/F5
+  to see the small test map (roads, locations, district outlines), police
+  units moving between them, colour-coded incident markers, a top HUD,
+  pause/1x/2x/4x, and an event feed. Click an available unit then an
+  actionable incident marker to dispatch it — that's the only dispatch
+  path now (no auto-dispatch), so undispatched incidents genuinely queue
+  and can escalate. Confirmed rendering correctly and the full
+  dispatch-through-Commands path working, screenshotted at each stage.
 
-**None of this has been executed against the real engine yet** — Godot
-isn't installed in the sandbox this was written in, and its network policy
-blocks fetching the engine binary. Written carefully (typed GDScript
-throughout, hand-checked for the usual gotchas) but not verified. See
-[`tests/README.md`](tests/README.md) for how to run both the headless
-Milestone 1 harness and the visual Milestone 2 scene, and what to check.
+See [`tests/README.md`](tests/README.md) for how to run both the headless
+Milestone 1 harness and the visual Milestone 2 scene yourself.
+
+**One open finding from the verification run, not yet acted on:** natural
+incident generation over a 12h shift came out lower than a rough estimate
+suggested (~5 incidents vs. ~18 expected), likely because several
+district starting values sit below the neutral midpoint the probability
+weighting is centred on, systematically damping rates. Worth tuning after
+real playtesting rather than guessing further from one seeded run — a
+quiet start is arguably consistent with spec section 7 anyway.
 
 No briefing screen, incident info panel, or debrief UI yet (Milestone 3+).
 

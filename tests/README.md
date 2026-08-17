@@ -1,14 +1,12 @@
 # Running this project
 
-**None of this has been run against the real engine yet.** The sandbox
-this was written in has no Godot binary installed, and its network egress
-policy blocks fetching one from GitHub releases, so no GDScript here has
-been checked by the actual engine — no syntax validation, no runtime
-testing. It's written carefully (typed GDScript throughout, cross-checked
-by hand for the usual gotchas — Resource reference-sharing, typed-array/
-export edge cases, `String.join()` argument typing, scene resource format,
-etc.) but "written carefully" is not the same as "verified." Treat the
-first run as the real first test of this code, on both paths below.
+**Both paths below have been run against the real engine (Godot 4.7.1)
+and confirmed working** — a full 12h shift completes cleanly headless,
+and the visual scene renders and handles dispatch correctly under
+software rendering. Run them yourself with the steps below; nothing here
+is guesswork anymore, though there's plenty still to build (Milestone 3+)
+and one open tuning question noted in the main README (natural incident
+rate came out lower than expected on the one seed tested).
 
 ## The visual scene (Milestone 2) — the normal way to look at this
 
