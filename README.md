@@ -11,10 +11,10 @@ a repo, branch, or Supabase project with that app.
 
 ## Status
 
-**Milestones 1-5 built and verified against the real engine (Godot 4.7.1).**
-The core MVP loop from `docs/SPEC.md` is playable end to end, including
-local persistence across separate play sessions. See
-[`docs/SPEC.md`](docs/SPEC.md) for the full MVP design and
+**Milestones 1-6 built and verified against the real engine (Godot 4.7.1).**
+The full MVP loop from `docs/SPEC.md` is playable end to end, on the real
+6-district Westford town, including local persistence across separate play
+sessions. See [`docs/SPEC.md`](docs/SPEC.md) for the full MVP design and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the technical analysis
 and phased plan this was built against.
 
@@ -46,11 +46,25 @@ and phased plan this was built against.
   5-dimension Response/Prevention/Intelligence/Community/Workforce rating
   (Poor through Excellent) and a short narrative summary, not just raw
   counters.
+- **Milestone 6 — the full Westford town.** The real 6-district town from
+  spec section 5 (Town Centre, Northside, East Estate, South Residential,
+  West Industrial, Rural/Outskirts): 73 gameplay locations (police
+  station, high street, railway station, football stadium, shops, pubs,
+  restaurants, estates, schools, hospital, fire station, community
+  centres, industrial units, farms) laid out around a 31-node/33-edge road
+  network, plus ~650 decorative buildings for visual density -- generated
+  procedurally from a compact per-district data table rather than hand
+  authored point-by-point, since there's no art yet to make exact
+  placement meaningful. This replaced the small 3-district test map as
+  what the real game plays on; the small map lives on only for the fast
+  headless test harness.
 
 Every milestone above has been run against the real engine and
 screenshotted at each stage, not shipped on the strength of the code
 reading right — including forcing a save, killing the process, and
-launching a fresh one to confirm the load path actually works.
+launching a fresh one to confirm the load path actually works, and
+dispatching a unit clear across the full town to confirm pathfinding holds
+up at the larger scale.
 
 `scenes/main/main.tscn` is the project's main scene — open the project in
 the Godot editor and press Run/F5 to play it. See
@@ -65,9 +79,10 @@ systematically damping rates. Worth tuning after real playtesting rather
 than guessing further from one seeded run — a quiet start is arguably
 consistent with spec section 7 anyway.
 
-No specialist units (traffic/dog/firearms), neighbourhood team, or the
-full 6-district Westford town yet (Milestone 6+) — still the small
-3-district test map throughout.
+Not built: specialist units (traffic/dog/firearms), a separate
+neighbourhood team, audio, and any visual polish beyond flat coloured
+shapes (spec's "SimCity-style" target art direction is still a placeholder
+-- see spec section 2's explicit MVP exclusions and section 61's Phase 8).
 
 ## Engine
 
@@ -87,11 +102,13 @@ scripts/ui/                  MapView/HudView/BriefingView/(Incident|Unit)PanelVi
                               Presentation, built via code not .tscn
 scripts/main.gd              Scene entry point: owns the briefing->play->debrief->briefing loop
 scenes/main/main.tscn        The only hand-authored scene file -- a bare root + script
-data/                         Small-test-map + starter content, built in code (see tests/README.md)
-tests/                        Headless debug harness + how-to-run notes
+data/                         Map factories (small test map + full Westford) and starter content,
+                              all built in code (see tests/README.md)
+tests/                        Headless debug harness (small map) + how-to-run notes
 docs/                         Spec + architecture analysis
 ```
 
 See `docs/ARCHITECTURE.md` section 3 for the reasoning behind this
-structure, and section 9 for what Milestones 2+ (map, UI, full Westford
-town) still need to add.
+structure, and section 9 for the original phased plan (Milestones 1-6 are
+now complete; what's left is spec section 61's Phase 8 polish and the
+explicitly-deferred systems listed above).
