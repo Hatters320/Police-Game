@@ -33,7 +33,13 @@ var _debrief_view: DebriefView
 ## should take a handful of taps, not fifteen-plus.
 const ZOOM_STEP_IN := 1.25
 const ZOOM_STEP_OUT := 0.8
-const MIN_ZOOM := 0.02
+## 0.05 fits the whole 6-district town (bounding box roughly
+## x:-3800..3850, y:-3500..6400) with a little room to breathe -- the old
+## 0.02 let pinch/the "-" button zoom out to 2.5x further than that, past
+## the town's edge into unrendered empty space (reported as a plain grey
+## screen on a real phone). 0.04 keeps a bit of extra margin beyond the
+## whole-town fit without reaching that empty void.
+const MIN_ZOOM := 0.04
 const MAX_ZOOM := 2.5
 
 ## A press/touch that moves less than this many screen pixels before

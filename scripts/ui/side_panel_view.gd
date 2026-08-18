@@ -15,11 +15,11 @@ func _ready() -> void:
 
 	var panel := PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	panel.position = Vector2(-440, 150) # below all 3 of HudView's stacked rows
+	panel.position = Vector2(-380, 60) # below HudView's stacked rows
 	add_child(panel)
 
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(420, 420)
+	scroll.custom_minimum_size = Vector2(360, 280)
 	panel.add_child(scroll)
 
 	content = VBoxContainer.new()
