@@ -1,28 +1,42 @@
 class_name SidePanelView
 extends CanvasLayer
-## Shared scaffold for a right-anchored, scrollable info panel
-## (IncidentPanelView, UnitPanelView) -- the common open/close/refresh
-## shape and small UI-building helpers live here so they're not
-## reimplemented per panel.
+## Shared scaffold for a scrollable info panel, anchored to either side
+## (IncidentPanelView/UnitPanelView/NeighbourhoodPanelView on the right,
+## ResourcesPanelView on the left, IncidentsListPanelView on the right) --
+## the common open/close/refresh shape and small UI-building helpers live
+## here so they're not reimplemented per panel. Subclasses override
+## _panel_anchor()/_panel_height() to change side/height; right-anchored,
+## ~220-tall is the default every existing panel already wants.
 
 signal closed
 
 var content: VBoxContainer
+
+## Override to Control.PRESET_TOP_LEFT for a left-docked panel.
+func _panel_anchor() -> int:
+	return Control.PRESET_TOP_RIGHT
+
+## Override for a taller panel (e.g. a full-length browsable list) --
+## content still scrolls beyond this, it's just the visible window.
+func _panel_height() -> float:
+	return 174.0
 
 func _ready() -> void:
 	layer = 3
 	visible = false
 
 	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	var anchor: int = _panel_anchor()
+	panel.set_anchors_preset(anchor)
 	# Below HudView's stacked rows (stats ~y12-42, controls ~y38-80,
-	# overlay ~y84-124) -- the previous y=60 sat under the overlay row's
-	# buttons, showing them ghosted through every panel's top edge.
-	panel.position = Vector2(-380, 130)
+	# overlay ~y84-124, panels ~y126-166) -- an earlier y=60 sat under the
+	# overlay row's buttons, showing them ghosted through every panel's top
+	# edge; y=130 later sat under the panels row added alongside it.
+	panel.position = Vector2(20, 176) if anchor == Control.PRESET_TOP_LEFT else Vector2(-380, 176)
 	add_child(panel)
 
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(360, 220)
+	scroll.custom_minimum_size = Vector2(360, _panel_height())
 	panel.add_child(scroll)
 
 	content = VBoxContainer.new()

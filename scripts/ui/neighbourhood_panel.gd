@@ -7,7 +7,14 @@ extends SidePanelView
 ## instead -- this panel is for the general roster view and district-wide
 ## community engagement/proactive tasking.
 
+var _map_view: MapView
+
+func wire(map_view: MapView) -> void:
+	_map_view = map_view
+
 func open() -> void:
+	if _map_view:
+		_map_view.close_other_panels(self)
 	_show_panel()
 	refresh()
 

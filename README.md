@@ -108,6 +108,59 @@ now still selects it (the old flat-radius code would have missed
 entirely at that zoom), and tapping a feed entry opens the correct
 incident's panel.
 
+A real player mockup asked for a permanent 3-column desktop layout --
+incidents always visible full-length on the right, a resources roster
+always visible on the left, a radio log always visible along the bottom.
+Confirmed with the player that a permanently-docked 3-column layout
+doesn't fit a phone screen alongside a usable map, so this shipped as an
+open-on-demand, mobile-adapted equivalent instead: two new HUD buttons
+(`Resources`, `Incidents`) open `ResourcesPanelView`/
+`IncidentsListPanelView`, reusing the same scrollable side-panel scaffold
+every other panel this session already uses, extended with a
+`_panel_anchor()` override so `ResourcesPanelView` docks left instead of
+the existing default right. Tapping any unit/incident row pans the map
+camera to it and opens that entry's existing detail panel (spec: selecting
+an entry "should take the map to the location"); closing
+`IncidentsListPanelView`'s detail view returns to the list rather than
+requiring it to be reopened. All five panels (incident/unit/neighbourhood/
+resources/incidents-list) are mutually exclusive via one
+`MapView.close_other_panels()` helper now used by every panel-opening path.
+The mockup's police station illustration is now the real station marker on
+the map too -- its checkerboard placeholder background removed via a
+from-scratch connected-component flood fill (no matting tool was
+available) and cut in as a `Sprite2D` at a tuned in-world scale.
+
+Adding two more HUD buttons pushed the overlay row's real content width to
+709px against the 640px design canvas -- a genuine overflow, caught by
+measuring `HBoxContainer` content width against the canvas in a headless
+run rather than assuming it fit. Fixed by splitting the "open a panel"
+buttons (`Neighbourhood`/`Resources`/`Incidents`) onto their own row below
+the map-filter toggle row, each row re-measured afterward at 404px/297px --
+comfortably clear. Building the new panels also surfaced a real, unrelated
+bug: four of `MapView`'s reactive signal connections (incident
+created/state-changed/resolved, tick-completed) had ended up inside
+`pan_camera_to()` instead of `setup()`, so incident markers would never
+have spawned or refreshed on the map until a player happened to open a
+list panel and tap a row at least once -- moved to `setup()`, where
+they run exactly once per game.
+
+The mockup's other ask -- radio communication from the control room to
+units on the ground -- reuses the existing event feed's on-screen
+footprint rather than adding a fourth always-on panel, styled as actual
+radio traffic: `CONTROL to all units: new call, P5 shoplifting, ...` on a
+new incident, `CONTROL to <callsign>: proceed to <location> for ...` the
+moment a unit is dispatched, and `<callsign> to Control: on scene, ...`
+the moment they arrive, colour-coded control-room-white vs unit-green.
+The dispatch line needed one small backend fix: `Commands.
+assign_unit_to_incident` changes an incident's state directly rather than
+through `IncidentManager`'s own tick loop, so it was the one state
+transition that never emitted `incident_state_changed` at all -- now it
+does, matching every other transition. Verified against the real engine:
+opening each new panel lists every real unit/incident, tapping a row pans
+the camera and opens the correct detail panel with the other panel closed,
+and dispatching + a unit arriving produces the expected two radio lines
+in the feed.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a

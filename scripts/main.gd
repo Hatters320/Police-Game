@@ -19,6 +19,8 @@ var hud_view: HudView
 var incident_panel: IncidentPanelView
 var unit_panel: UnitPanelView
 var neighbourhood_panel: NeighbourhoodPanelView
+var resources_panel: ResourcesPanelView
+var incidents_list_panel: IncidentsListPanelView
 var day_night_overlay: DayNightOverlay
 var weather_overlay: WeatherOverlay
 var audio_manager: AudioManager
@@ -136,15 +138,28 @@ func _ready() -> void:
 	neighbourhood_panel = NeighbourhoodPanelView.new()
 	add_child(neighbourhood_panel)
 
+	resources_panel = ResourcesPanelView.new()
+	add_child(resources_panel)
+
+	incidents_list_panel = IncidentsListPanelView.new()
+	add_child(incidents_list_panel)
+
 	map_view = MapView.new()
 	add_child(map_view)
 	map_view.setup(world, incident_panel, unit_panel)
+	map_view.set_camera(camera)
+	map_view.wire_other_panels(resources_panel, incidents_list_panel, neighbourhood_panel)
+	neighbourhood_panel.wire(map_view)
+	resources_panel.wire(map_view, unit_panel)
+	incidents_list_panel.wire(map_view, incident_panel)
 
 	hud_view = HudView.new()
 	add_child(hud_view)
 	hud_view.wire_overlays(map_view)
 	hud_view.wire_zoom_controls(func(): _zoom_by(ZOOM_STEP_IN), func(): _zoom_by(ZOOM_STEP_OUT))
 	hud_view.wire_neighbourhood_panel(func(): neighbourhood_panel.open())
+	hud_view.wire_resources_panel(func(): resources_panel.open())
+	hud_view.wire_incidents_panel(func(): incidents_list_panel.open())
 	hud_view.hide()
 
 	_begin_briefing(next_shift_number)
@@ -249,6 +264,8 @@ func _begin_briefing(shift_number: int) -> void:
 	incident_panel.close()
 	unit_panel.close()
 	neighbourhood_panel.close()
+	resources_panel.close()
+	incidents_list_panel.close()
 
 	_briefing_view = BriefingView.new()
 	add_child(_briefing_view)
@@ -269,6 +286,8 @@ func _on_shift_ended(summary: Dictionary) -> void:
 	incident_panel.close()
 	unit_panel.close()
 	neighbourhood_panel.close()
+	resources_panel.close()
+	incidents_list_panel.close()
 
 	SaveManager.save(Simulation.core, int(summary["shift_number"]) + 1)
 

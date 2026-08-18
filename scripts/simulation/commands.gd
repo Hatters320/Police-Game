@@ -64,9 +64,17 @@ func assign_unit_to_incident(unit_id: String, incident_id: String) -> Dictionary
 	unit.patrol_location_id = ""
 	incident.assigned_unit_ids.append(unit_id)
 
+	var old_state: GameEnums.IncidentState = incident.state
 	if incident.state == GameEnums.IncidentState.QUEUED:
 		incident.state_machine.transition_to(GameEnums.IncidentState.ASSIGNED)
 	incident.state_machine.transition_to(GameEnums.IncidentState.TRAVELLING)
+	# This transition happens directly here rather than through
+	# IncidentManager's own tick loop, so unlike every other state change it
+	# would otherwise never emit incident_state_changed -- markers wouldn't
+	# refresh and (radio log, HudView) would never know a unit was actually
+	# dispatched until it arrived. Emitting it here keeps this transition
+	# consistent with every other one.
+	_ctx.incident_manager.incident_state_changed.emit(incident_id, old_state, incident.state)
 	return {"result": GameEnums.CommandResultCode.OK}
 
 func set_command_intent(incident_id: String, intent: GameEnums.CommandIntent) -> Dictionary:

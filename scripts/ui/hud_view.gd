@@ -15,6 +15,7 @@ var _staffing_label: Label
 var _fatigue_label: Label
 var _feed_list: VBoxContainer
 var _overlay_row: HBoxContainer
+var _panels_row: HBoxContainer
 var _controls_row: HBoxContainer
 var _map_view: MapView
 
@@ -87,9 +88,22 @@ func _ready() -> void:
 	_overlay_row.add_theme_constant_override("separation", 8)
 	add_child(_overlay_row)
 
+	# Separate row for "open a full panel" buttons (Neighbourhood/Resources/
+	# Incidents) rather than piling them onto _overlay_row's map-filter
+	# toggles -- together the two rows' 9 buttons measured 709px wide on the
+	# 640px design canvas (real headless measurement), well past the edge.
+	# Splitting them across two rows keeps every row comfortably under 640
+	# without shrinking any button below its spec section 56 touch size.
+	_panels_row = HBoxContainer.new()
+	_panels_row.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_panels_row.position = Vector2(20, 126)
+	_panels_row.add_theme_constant_override("separation", 8)
+	add_child(_panels_row)
+
 	Simulation.core.incident_manager.incident_created.connect(_on_incident_created)
 	Simulation.core.incident_manager.incident_escalated.connect(_on_incident_escalated)
 	Simulation.core.incident_manager.incident_resolved.connect(_on_incident_resolved)
+	Simulation.core.incident_manager.incident_state_changed.connect(_on_incident_state_changed)
 	Simulation.core.fatigue_manager.fatigue_warning.connect(_on_fatigue_warning)
 	Simulation.core.tick_completed.connect(refresh_stats)
 	# Commands.gd's own header comment says "nothing silently no-ops", but
@@ -131,7 +145,7 @@ func wire_neighbourhood_panel(on_pressed: Callable) -> void:
 	button.add_theme_font_size_override("font_size", 15)
 	button.custom_minimum_size = Vector2(0, 40)
 	button.pressed.connect(on_pressed)
-	_overlay_row.add_child(button)
+	_panels_row.add_child(button)
 
 ## Called once by main.gd after MapView exists -- builds the overlay
 ## toggle row (spec section 41), and keeps the reference for the event
@@ -145,6 +159,22 @@ func wire_overlays(map_view: MapView) -> void:
 	_add_overlay_button("Burglary", map_view, MapView.OverlayType.BURGLARY)
 	_add_overlay_button("Visibility", map_view, MapView.OverlayType.VISIBILITY)
 	_add_overlay_button("Demand", map_view, MapView.OverlayType.DEMAND)
+
+func wire_resources_panel(on_pressed: Callable) -> void:
+	var button := Button.new()
+	button.text = "Resources"
+	button.add_theme_font_size_override("font_size", 15)
+	button.custom_minimum_size = Vector2(0, 40)
+	button.pressed.connect(on_pressed)
+	_panels_row.add_child(button)
+
+func wire_incidents_panel(on_pressed: Callable) -> void:
+	var button := Button.new()
+	button.text = "Incidents"
+	button.add_theme_font_size_override("font_size", 15)
+	button.custom_minimum_size = Vector2(0, 40)
+	button.pressed.connect(on_pressed)
+	_panels_row.add_child(button)
 
 func _add_overlay_button(text: String, map_view: MapView, overlay: MapView.OverlayType) -> void:
 	var button := Button.new()
@@ -186,20 +216,52 @@ func _on_fatigue_warning(officer_id: String) -> void:
 func _on_command_rejected(_command_name: String, reason: String) -> void:
 	_append_feed("Can't do that -- %s" % reason, Color(0.95, 0.65, 0.3))
 
+## Radio colours: CONTROL room traffic reads white (same as the rest of the
+## feed), units transmitting back to CONTROL read pale green -- a cheap way
+## to tell the two "speakers" apart at a glance in a single shared log,
+## since this is a mobile-adapted single feed rather than the mockup's
+## separate always-on radio panel (see ResourcesPanelView's header).
+const CONTROL_COLOR := Color.WHITE
+const UNIT_COLOR := Color(0.55, 0.9, 0.55)
+
 func _on_incident_created(incident_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident:
-		_append_feed("New %s (P%d) at %s" % [incident.type_id, incident.priority, incident.location_id], Color.WHITE, incident_id)
+		_append_feed("CONTROL to all units: new call, P%d %s, %s." % [incident.priority, incident.type_id, incident.location_id], CONTROL_COLOR, incident_id)
 
 func _on_incident_escalated(incident_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident:
-		_append_feed("ESCALATED: %s (now P%d)" % [incident.type_id, incident.priority], Color.WHITE, incident_id)
+		_append_feed("CONTROL to all units: urgent, %s escalating, now P%d." % [incident.type_id, incident.priority], CONTROL_COLOR, incident_id)
 
 func _on_incident_resolved(incident_id: String, outcome_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident:
-		_append_feed("Resolved %s -> %s" % [incident.type_id, outcome_id])
+		_append_feed("CONTROL: %s resolved -- %s. Stand down." % [incident.type_id, outcome_id])
+
+## Player-driven dispatch (Commands.assign_unit_to_incident) and an actual
+## unit arriving (IncidentManager.mark_unit_arrived) are the only two state
+## changes worth reading as radio traffic -- the timer-driven ones
+## (REPORTED->ASSESSED->QUEUED, ON_SCENE->DEVELOPING->RESOLVED) are call-
+## room/scene process, not a transmission, and RESOLVED is already covered
+## by _on_incident_resolved above.
+func _on_incident_state_changed(incident_id: String, old_state: GameEnums.IncidentState, new_state: GameEnums.IncidentState) -> void:
+	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
+	if incident == null:
+		return
+	var callsigns: String = _assigned_callsigns(incident)
+	if new_state == GameEnums.IncidentState.TRAVELLING and old_state != GameEnums.IncidentState.TRAVELLING:
+		_append_feed("CONTROL to %s: proceed to %s for P%d %s." % [callsigns, incident.location_id, incident.priority, incident.type_id], CONTROL_COLOR, incident_id)
+	elif new_state == GameEnums.IncidentState.ON_SCENE and old_state == GameEnums.IncidentState.TRAVELLING:
+		_append_feed("%s to Control: on scene, %s." % [callsigns, incident.location_id], UNIT_COLOR, incident_id)
+
+func _assigned_callsigns(incident: Incident) -> String:
+	var callsigns: Array[String] = []
+	for unit_id in incident.assigned_unit_ids:
+		var unit: PoliceUnit = Simulation.core.resource_manager.get_unit(unit_id)
+		if unit:
+			callsigns.append(unit.callsign)
+	return ", ".join(PackedStringArray(callsigns)) if not callsigns.is_empty() else "Unit"
 
 ## Enough history to actually scroll through, not just a handful of lines
 ## that immediately fall off the end -- a real user found the previous

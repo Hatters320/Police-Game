@@ -2,16 +2,23 @@ class_name MapView
 extends Node2D
 ## Draws the map (roads, locations, district boundaries) and manages
 ## UnitMarker/IncidentMarker child nodes reactively via SimulationCore's
-## signals (spec section 35-37). No art assets yet -- everything is drawn
-## with simple primitives, which is honest about where this is in the
-## phased plan (spec section 54: readable and mobile-friendly matters far
-## more than polish this early) rather than faking it.
+## signals (spec section 35-37). Everything is drawn with simple
+## primitives -- readable and mobile-friendly matters far more than
+## polish at this stage (spec section 54) -- except the police station,
+## which uses a real illustration (data/art/police_station.png) since the
+## player has exactly one and it's their home base.
 ##
 ## Clicking a unit opens UnitPanelView (welfare/breaks, spec section 14);
 ## clicking an incident marker opens IncidentPanelView (dispatch/reassign/
 ## recall/intent, spec section 25-27). The two panels are mutually
 ## exclusive -- opening one closes the other, since both anchor to the
 ## same screen position.
+
+const POLICE_STATION_TEXTURE := preload("res://data/art/police_station.png")
+## Displayed width in world units -- big enough to read as the player's
+## home base among the procedural building rects, without dwarfing a
+## district (radius ~900).
+const POLICE_STATION_DISPLAY_WIDTH := 170.0
 
 const PRIORITY_COLORS := {
 	1: Color(0.85, 0.15, 0.15), # critical -- red
@@ -90,20 +97,50 @@ var _selected_unit_id: String = ""
 var _current_overlay: OverlayType = OverlayType.NONE
 var _overlay_noise: Dictionary = {} # district_id -> float
 var _overlay_tick_counter: int = 0
+var _camera: Camera2D
+var _resources_panel: ResourcesPanelView
+var _incidents_list_panel: IncidentsListPanelView
+var _neighbourhood_panel: NeighbourhoodPanelView
 
 func setup(world: WorldMapData, incident_panel: IncidentPanelView, unit_panel: UnitPanelView) -> void:
 	_world = world
 	_incident_panel = incident_panel
 	_unit_panel = unit_panel
 	_unit_panel.closed.connect(func(): _select_unit(""))
-	_draw_static_map()
-	_spawn_unit_markers()
-	_spawn_existing_incident_markers()
-
 	Simulation.core.incident_manager.incident_created.connect(_on_incident_created)
 	Simulation.core.incident_manager.incident_state_changed.connect(_on_incident_state_changed)
 	Simulation.core.incident_manager.incident_resolved.connect(_on_incident_resolved)
 	Simulation.core.tick_completed.connect(_on_tick_completed)
+	_draw_static_map()
+	_spawn_unit_markers()
+	_spawn_existing_incident_markers()
+
+## Called once by main.gd after the resources/incidents-list/neighbourhood
+## panels exist, so every "open a side panel" path (tapping a map marker,
+## a feed line, or a resources/incidents-list row) can close whichever of
+## the OTHER panels happens to already be open first -- five panels are
+## only ever meant to show one at a time; the phone screen has no room to
+## show two full-height overlays together.
+func wire_other_panels(resources_panel: ResourcesPanelView, incidents_list_panel: IncidentsListPanelView, neighbourhood_panel: NeighbourhoodPanelView) -> void:
+	_resources_panel = resources_panel
+	_incidents_list_panel = incidents_list_panel
+	_neighbourhood_panel = neighbourhood_panel
+
+func close_other_panels(except: Node = null) -> void:
+	for panel in [_incident_panel, _unit_panel, _resources_panel, _incidents_list_panel, _neighbourhood_panel]:
+		if panel and panel != except and panel.is_open():
+			panel.close()
+
+func set_camera(camera: Camera2D) -> void:
+	_camera = camera
+
+## Recentres the map on a world position without changing zoom -- used by
+## the resources/incidents list panels (spec: selecting an entry "should
+## take the map to the [unit/incident] location") so a player doesn't have
+## to hunt for it on the map themselves after picking it from a list.
+func pan_camera_to(world_pos: Vector2) -> void:
+	if _camera:
+		_camera.position = world_pos
 
 ## Shared by UnitMarker/IncidentMarker too, so the circle-approximation
 ## logic lives in exactly one place. segments=4 with the same formula
@@ -202,7 +239,10 @@ func _add_location_marker(location: LocationDefinition) -> void:
 
 	if location.tags.has("station"):
 		var is_police: bool = location.id == _world.police_station_location_id
-		marker.add_child(make_circle(18.0, Color(0.2, 0.35, 0.85) if is_police else Color(0.85, 0.3, 0.2)))
+		if is_police:
+			marker.add_child(_make_police_station_sprite())
+		else:
+			marker.add_child(make_circle(18.0, Color(0.85, 0.3, 0.2)))
 	elif location.tags.has("park"):
 		_add_tree_cluster(marker, LOCATION_STYLES["park"]["color"], LOCATION_STYLES["park"]["radius"])
 	else:
@@ -215,10 +255,22 @@ func _add_location_marker(location: LocationDefinition) -> void:
 
 	var label := Label.new()
 	label.text = location.display_name
-	label.position = Vector2(14, -8)
+	label.position = Vector2(14, -8) if not (location.tags.has("station") and location.id == _world.police_station_location_id) \
+		else Vector2(-POLICE_STATION_DISPLAY_WIDTH * 0.35, 14)
 	label.add_theme_font_size_override("font_size", 15)
 	label.modulate = Color(0.85, 0.85, 0.85)
 	marker.add_child(label)
+
+func _make_police_station_sprite() -> Sprite2D:
+	var sprite := Sprite2D.new()
+	sprite.texture = POLICE_STATION_TEXTURE
+	var scale_factor: float = POLICE_STATION_DISPLAY_WIDTH / POLICE_STATION_TEXTURE.get_width()
+	sprite.scale = Vector2(scale_factor, scale_factor)
+	# The illustration's own ground shadow sits below the building's visual
+	# centre -- shift up so the building itself (not the empty isometric
+	# ground plane) sits over the location's actual coordinate.
+	sprite.offset.y = -POLICE_STATION_TEXTURE.get_height() * 0.22
+	return sprite
 
 func _style_for(location: LocationDefinition) -> Dictionary:
 	for tag in location.tags:
@@ -531,8 +583,7 @@ func handle_tap(world_pos: Vector2, camera_zoom: float) -> void:
 func open_incident_panel(incident_id: String) -> void:
 	if not _incident_markers.has(incident_id):
 		return
-	if _unit_panel:
-		_unit_panel.close()
+	close_other_panels(_incident_panel)
 	if _incident_panel:
 		_incident_panel.open(incident_id)
 
@@ -559,8 +610,7 @@ func _handle_click(click_pos: Vector2, camera_zoom: float) -> void:
 	# scaled, sometimes generous) radius when zoomed far out -- resolve by
 	# whichever is actually nearer to the tap, not just "units win".
 	if closest_unit_id != "" and (closest_incident_id == "" or closest_unit_dist <= closest_incident_dist):
-		if _incident_panel:
-			_incident_panel.close()
+		close_other_panels(_unit_panel)
 		if _unit_panel:
 			_unit_panel.open(closest_unit_id)
 		_select_unit(closest_unit_id)
