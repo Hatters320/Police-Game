@@ -20,4 +20,10 @@ static func _football_match() -> EventDefinition:
 		"night_economy": 10.0,
 		"community_tension": 5.0,
 	}
+	# Spec section 31's literal controlled-chain example: this event, once
+	# it has pulled enough units away to leave the town thin on coverage,
+	# can spawn one opportunist shoplifting incident -- see EventManager.
+	event.secondary_incident_type_id = "shoplifting"
+	event.secondary_incident_chance_per_hour = 3.0
+	event.secondary_incident_coverage_threshold = 1
 	return event

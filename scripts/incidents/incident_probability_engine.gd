@@ -14,14 +14,15 @@ static func roll_for_incident(
 	active_events: Array[EventDefinition],
 	current_minute: int,
 	dt_minutes: float,
-	rng: RandomNumberGenerator
+	rng: RandomNumberGenerator,
+	weather: GameEnums.WeatherType = GameEnums.WeatherType.CLEAR
 ) -> Dictionary:
 	var weights: Dictionary = {} # "type_id|district_id" -> weight (expected/hour)
 	var total_weight := 0.0
 	for type_def in type_defs:
 		for district_id in district_states.keys():
 			var district: DistrictState = district_states[district_id]
-			var w: float = _weight_for(type_def, district, active_events, current_minute)
+			var w: float = _weight_for(type_def, district, active_events, current_minute, weather)
 			if w <= 0.0:
 				continue
 			var key: String = "%s|%s" % [type_def.id, district_id]
@@ -47,7 +48,8 @@ static func _weight_for(
 	type_def: IncidentTypeDefinition,
 	district: DistrictState,
 	active_events: Array[EventDefinition],
-	current_minute: int
+	current_minute: int,
+	weather: GameEnums.WeatherType = GameEnums.WeatherType.CLEAR
 ) -> float:
 	var rate: float = type_def.base_rate_per_hour
 	for variable_name in type_def.district_weight_factors.keys():
@@ -59,6 +61,8 @@ static func _weight_for(
 		rate *= 1.0 + ((value - baseline) / 50.0) * factor
 	if type_def.night_weighted and _is_night(current_minute):
 		rate *= 1.6
+	if weather == GameEnums.WeatherType.RAIN:
+		rate *= type_def.rain_multiplier
 	for event in active_events:
 		if event.affects_district(district.district_id):
 			rate *= event.incident_weight_multiplier

@@ -28,6 +28,7 @@ var fatigue_manager: FatigueManager = FatigueManager.new()
 var community_manager: CommunityManager = CommunityManager.new()
 var specialist_manager: SpecialistManager = SpecialistManager.new()
 var neighbourhood_manager: NeighbourhoodManager = NeighbourhoodManager.new()
+var weather_manager: WeatherManager = WeatherManager.new()
 var commands: Commands = Commands.new()
 var debug_commands: DebugCommands = DebugCommands.new()
 
@@ -70,6 +71,7 @@ func initialize(
 	ctx.community_manager = community_manager
 	ctx.specialist_manager = specialist_manager
 	ctx.neighbourhood_manager = neighbourhood_manager
+	ctx.weather_manager = weather_manager
 	ctx.commands = commands
 	ctx.debug_commands = debug_commands
 	ctx.rng = rng
@@ -90,6 +92,7 @@ func prepare_shift(shift_number: int, start_minute: int, duration_minutes: int, 
 	resource_manager.form_units(officer_manager.available_officers(), station)
 	shift_manager.prepare_shift(shift_number, start_minute, duration_minutes)
 	specialist_manager.setup_shift(rng)
+	weather_manager.setup_shift(rng)
 	game_clock.total_minutes = start_minute
 
 ## Confirms the briefing (spec section 16's "confirm the shift plan") --

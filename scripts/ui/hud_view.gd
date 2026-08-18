@@ -30,7 +30,7 @@ func _ready() -> void:
 	var top_bar := HBoxContainer.new()
 	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	top_bar.position = Vector2(20, 12)
-	top_bar.add_theme_constant_override("separation", 28)
+	top_bar.add_theme_constant_override("separation", 16)
 	add_child(top_bar)
 
 	_time_label = _add_stat_label(top_bar)
@@ -70,7 +70,7 @@ func _ready() -> void:
 
 func _add_stat_label(parent: Node) -> Label:
 	var label := Label.new()
-	label.add_theme_font_size_override("font_size", 16)
+	label.add_theme_font_size_override("font_size", 14)
 	parent.add_child(label)
 	return label
 
@@ -120,9 +120,11 @@ func _add_overlay_button(text: String, map_view: MapView, overlay: MapView.Overl
 func refresh_stats() -> void:
 	var core: SimulationCore = Simulation.core
 	var shift: ShiftState = core.shift_manager.shift_state
-	_time_label.text = "%s  (shift %s-%s)" % [
+	_time_label.text = "%s  (shift %s-%s)  -- %s" % [
 		shift.time_of_day_string(), TimeFormat.clock(shift.shift_start_minute), TimeFormat.clock(shift.shift_end_minute),
+		core.weather_manager.weather_text().to_upper(),
 	]
+	_time_label.modulate = Color(0.6, 0.75, 0.95) if core.weather_manager.is_raining() else Color.WHITE
 	var available_count: int = core.resource_manager.available_units().size()
 	_units_label.text = "%d AVAILABLE" % available_count
 	# Spec section 19: warn when reserve is running dangerously low, rather

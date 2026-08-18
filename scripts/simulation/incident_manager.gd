@@ -86,6 +86,19 @@ func force_resolve(incident_id: String, ctx: SimulationContext) -> void:
 	active_incidents.erase(incident_id)
 	history.append(incident.to_history_entry())
 
+## Controlled secondary-incident chain (spec section 31): a scripted, not
+## fully emergent, follow-on incident triggered by EventManager when an
+## active event's coverage condition is met (e.g. the football match's
+## "resources committed -> reduced coverage -> shoplifting opportunity").
+## Distinct from spawn_incident_for_debug in intent even though both call
+## the same underlying creator -- this is a real gameplay path, not a dev
+## tool, and it stamps a known fact explaining why the incident appeared.
+func spawn_secondary_incident(type_id: String, district_id: String, ctx: SimulationContext, cause_note: String) -> Incident:
+	var incident: Incident = _create_incident(type_id, district_id, ctx.current_minute, ctx.rng)
+	if incident:
+		incident.known_facts.append(cause_note)
+	return incident
+
 ## Cross-shift handover (docs/ARCHITECTURE.md): called once by ShiftManager
 ## at shift end. Every still-open incident loses its assignment and steps
 ## back no further than QUEUED; nothing else about it resets.
@@ -96,7 +109,7 @@ func apply_shift_handover() -> void:
 func _maybe_generate_incident(ctx: SimulationContext) -> void:
 	var pick: Dictionary = IncidentProbabilityEngine.roll_for_incident(
 		_type_defs_list, ctx.district_manager.districts, ctx.event_manager.active_events(),
-		ctx.current_minute, ctx.dt_minutes, ctx.rng
+		ctx.current_minute, ctx.dt_minutes, ctx.rng, ctx.weather_manager.current_weather
 	)
 	if pick.is_empty():
 		return

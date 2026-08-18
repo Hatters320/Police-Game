@@ -20,13 +20,19 @@ extends Resource
 @export var base_rate_per_hour: float = 0.05
 
 ## DistrictState variable name (e.g. "night_economy") -> multiplier. Points
-## above the neutral midpoint (50) scale the rate up by this factor (points
-## below scale it down); see IncidentProbabilityEngine._weight_for.
+## above this district's own captured baseline scale the rate up by this
+## factor (points below scale it down); see
+## IncidentProbabilityEngine._weight_for and DistrictState.get_baseline_variable.
 @export var district_weight_factors: Dictionary = {}
 
 ## True for types whose rate should rise during evening/night hours (spec
 ## section 7/33 -- night-time economy disorder).
 @export var night_weighted: bool = false
+
+## Multiplier applied while it's raining (spec section 34: "weather can
+## influence... outdoor ASB"). 1.0 (no effect) for types the MVP's weather
+## system doesn't model -- see WeatherManager.
+@export var rain_multiplier: float = 1.0
 
 ## Array of Dictionaries: {id: String, display_name: String, base_weight:
 ## float, favoured_skill: String, favoured_intent: GameEnums.CommandIntent}.

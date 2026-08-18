@@ -55,6 +55,7 @@ static func _asb() -> IncidentTypeDefinition:
 	def.base_rate_per_hour = 0.2
 	def.district_weight_factors = {"asb": 1.0, "night_economy": 0.5, "police_visibility": -0.5}
 	def.night_weighted = true
+	def.rain_multiplier = 0.6 # spec section 34: less outdoor loitering/gathering in the rain
 	def.possible_outcomes = [
 		{"id": "group_dispersed", "display_name": "Group dispersed", "base_weight": 3.0, "favoured_intent": GameEnums.CommandIntent.RESOLVE},
 		{"id": "warning_given", "display_name": "Warning given", "base_weight": 2.0, "favoured_intent": GameEnums.CommandIntent.REASSURE},

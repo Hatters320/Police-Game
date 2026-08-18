@@ -84,3 +84,7 @@ enum NeighbourhoodStatus {
 	EXISTING_TASK,
 	UNAVAILABLE,
 }
+
+## Spec section 34: "MVP may include: clear, rain" -- deliberately no
+## detailed weather simulation beyond these two states.
+enum WeatherType { CLEAR, RAIN }

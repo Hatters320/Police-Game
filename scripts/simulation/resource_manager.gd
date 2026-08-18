@@ -95,7 +95,13 @@ func tick(ctx: SimulationContext) -> void:
 				pass
 
 func _advance_travel(unit: PoliceUnit, ctx: SimulationContext) -> void:
-	var arrived: bool = unit.advance_along_path(BASE_SPEED_UNITS_PER_MIN * ctx.dt_minutes)
+	# Spec section 34's "traffic" weather influence -- a flat travel-speed
+	# reduction stands in for wet-road congestion without simulating actual
+	# traffic (see WeatherManager).
+	var speed: float = BASE_SPEED_UNITS_PER_MIN
+	if ctx.weather_manager.is_raining():
+		speed *= WeatherManager.RAIN_TRAVEL_SPEED_MULTIPLIER
+	var arrived: bool = unit.advance_along_path(speed * ctx.dt_minutes)
 	if not arrived:
 		return
 	if unit.current_incident_id != "":

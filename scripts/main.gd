@@ -20,6 +20,7 @@ var incident_panel: IncidentPanelView
 var unit_panel: UnitPanelView
 var neighbourhood_panel: NeighbourhoodPanelView
 var day_night_overlay: DayNightOverlay
+var weather_overlay: WeatherOverlay
 var audio_manager: AudioManager
 var camera: Camera2D
 var _briefing_view: BriefingView
@@ -52,6 +53,9 @@ func _ready() -> void:
 
 	day_night_overlay = DayNightOverlay.new()
 	add_child(day_night_overlay)
+
+	weather_overlay = WeatherOverlay.new()
+	add_child(weather_overlay)
 
 	audio_manager = AudioManager.new()
 	add_child(audio_manager)
@@ -94,6 +98,7 @@ func _begin_briefing(shift_number: int) -> void:
 	var roster: Array[Officer] = OfficerFactory.build_shift_roster()
 	Simulation.core.prepare_shift(shift_number, SHIFT_START_MINUTE, SHIFT_DURATION_MINUTES, roster)
 	map_view.refresh_units()
+	weather_overlay.refresh() # weather is rolled fresh by prepare_shift -- reflect it immediately
 
 	hud_view.hide()
 	incident_panel.close()

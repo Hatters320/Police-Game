@@ -22,6 +22,7 @@ var fatigue_manager: FatigueManager
 var community_manager: CommunityManager
 var specialist_manager: SpecialistManager
 var neighbourhood_manager: NeighbourhoodManager
+var weather_manager: WeatherManager
 var commands: Commands
 var debug_commands: DebugCommands
 var rng: RandomNumberGenerator

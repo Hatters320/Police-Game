@@ -149,9 +149,36 @@ every officer is forced UNAVAILABLE once the clock passes 21:00.
   base colours. Verified against the real engine at both the full-town
   zoom and a close-up, and with an overlay active.
 
+- **Weather (spec section 34).** Clear or rain, rolled once per shift
+  (30% rain) -- deliberately shallow per spec's "do not build detailed
+  weather simulation." Rain suppresses ASB's rate (people don't loiter
+  outdoors in the wet) via a new per-type `rain_multiplier` on
+  `IncidentTypeDefinition`, and slows unit travel ~15% (a stand-in for
+  wet-road congestion, spec's "traffic" influence, without simulating
+  actual traffic). A subtle screen tint plus the HUD's time readout
+  ("-- RAIN"/"-- CLEAR") cover the visual half. Verified against the real
+  engine: tint alpha and HUD text confirmed correct in both states, and
+  the ASB multiplier confirmed wired through.
+- **Secondary incidents -- controlled chain (spec section 31).** The
+  spec's literal example ("football match -> ... -> police resources
+  committed -> reduced town-centre coverage -> shoplifting opportunity")
+  implemented as a scripted chain on the football match event: while the
+  event is active and town-wide available units drop to the coverage
+  threshold, `EventManager` rolls a chance to spawn one `shoplifting`
+  incident, capped at one per event activation so it stays a controlled
+  chain rather than a spam generator (spec: "does NOT need to be fully
+  emergent... use controlled chains"). The spawned incident carries a
+  known fact explaining why it appeared. Verified against the real
+  engine: forced thin coverage during the event window and confirmed the
+  chain fires and the incident carries the expected cause note.
+
 Every system in this section was verified against the real engine the
 same way as the milestones above -- fresh screenshots and printed state
 checks each time, not shipped on the strength of the code reading right.
+Along the way, fixing weather's HUD readout surfaced a real (if minor)
+pre-existing layout issue -- the top stat bar could crowd the speed
+controls at default viewport width -- fixed by tightening the row's
+spacing and font size rather than just moving the new label elsewhere.
 
 Not built: real art assets. Everything drawn above is still flat-colour
 primitives, just arranged more deliberately toward the spec's
