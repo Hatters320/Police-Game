@@ -11,13 +11,13 @@ a repo, branch, or Supabase project with that app.
 
 ## Status
 
-**Milestones 1-6 plus Phase 8 polish built and verified against the real
-engine (Godot 4.7.1).**
-The full MVP loop from `docs/SPEC.md` is playable end to end, on the real
-6-district Westford town, including local persistence across separate play
-sessions. See [`docs/SPEC.md`](docs/SPEC.md) for the full MVP design and
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the technical analysis
-and phased plan this was built against.
+**The full spec -- Milestones 1-6, Phase 8 polish, and every previously
+deferred system -- is built and verified against the real engine (Godot
+4.7.1).** The MVP loop from `docs/SPEC.md` is playable end to end on the
+real 6-district Westford town, including local persistence across separate
+play sessions. See [`docs/SPEC.md`](docs/SPEC.md) for the full MVP design
+and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the technical
+analysis and phased plan this was built against.
 
 - **Milestone 1 — headless simulation core.** Game clock, shift/district/
   officer/resource/incident/event/fatigue/community/intelligence managers,
@@ -71,6 +71,12 @@ up at the larger scale.
 the Godot editor and press Run/F5 to play it. See
 [`tests/README.md`](tests/README.md) for how to run both the visual scene
 and the headless Milestone 1 harness yourself.
+
+### Beyond the MVP milestones
+
+Everything below was built after Milestone 6, closing out the spec's
+Phase 8 polish plus every system the original build had explicitly
+deferred.
 
 **Incident-rate bug fixed.** `IncidentProbabilityEngine` was weighting
 every district variable's effect on incident rate against a hardcoded
@@ -143,9 +149,17 @@ every officer is forced UNAVAILABLE once the clock passes 21:00.
   base colours. Verified against the real engine at both the full-town
   zoom and a close-up, and with an overlay active.
 
-Not built: real art assets -- the above is still flat-colour primitives,
-just arranged more deliberately (spec section 2's explicit MVP exclusions
-and section 61's Phase 8).
+Every system in this section was verified against the real engine the
+same way as the milestones above -- fresh screenshots and printed state
+checks each time, not shipped on the strength of the code reading right.
+
+Not built: real art assets. Everything drawn above is still flat-colour
+primitives, just arranged more deliberately toward the spec's
+"SimCity-style" target (section 2) than the original placeholder shapes
+were. One open item from real playtesting rather than more guessing: the
+full-town incident rate hasn't been tuned against actual play sessions
+yet, just confirmed to be back in a sane order of magnitude after the
+baseline-weighting fix above.
 
 ## Engine
 
@@ -172,6 +186,7 @@ docs/                         Spec + architecture analysis
 ```
 
 See `docs/ARCHITECTURE.md` section 3 for the reasoning behind this
-structure, and section 9 for the original phased plan (Milestones 1-6 are
-now complete; what's left is spec section 61's Phase 8 polish and the
-explicitly-deferred systems listed above).
+structure, and section 9 for the original phased plan -- Milestones 1-6,
+Phase 8 polish, and every system that plan explicitly deferred are all
+now complete; what remains is real art assets and incident-rate tuning
+against actual playtesting, both noted above.
