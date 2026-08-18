@@ -39,9 +39,15 @@ func _ready() -> void:
 	_staffing_label = _add_stat_label(top_bar)
 	_fatigue_label = _add_stat_label(top_bar)
 
+	# On its own row below the stats, not beside them -- side by side, the
+	# stat row's text and this row's buttons collided on narrower real
+	# phone screens (confirmed by real mobile playtesting at 844px wide).
+	# Stacking rows needs vertical room, which phones have far more of than
+	# horizontal, so this scales to any reasonably-sized viewport without
+	# per-resolution tuning.
 	_controls_row = HBoxContainer.new()
-	_controls_row.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	_controls_row.position = Vector2(-380, 12)
+	_controls_row.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_controls_row.position = Vector2(20, 46)
 	_controls_row.add_theme_constant_override("separation", 8)
 	add_child(_controls_row)
 	_add_button(_controls_row, "Pause", func(): Simulation.commands().pause())
@@ -57,7 +63,7 @@ func _ready() -> void:
 
 	_overlay_row = HBoxContainer.new()
 	_overlay_row.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_overlay_row.position = Vector2(20, 46)
+	_overlay_row.position = Vector2(20, 92)
 	_overlay_row.add_theme_constant_override("separation", 6)
 	add_child(_overlay_row)
 

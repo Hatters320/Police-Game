@@ -27,8 +27,12 @@ var camera: Camera2D
 var _briefing_view: BriefingView
 var _debrief_view: DebriefView
 
-const ZOOM_STEP_IN := 1.1
-const ZOOM_STEP_OUT := 0.9
+## Bigger per-tap step than a desktop scroll-wheel needs, since a phone's
+## on-screen +/- buttons (spec section 56) get far fewer discrete inputs
+## than a wheel does -- reaching a meaningfully different zoom level
+## should take a handful of taps, not fifteen-plus.
+const ZOOM_STEP_IN := 1.25
+const ZOOM_STEP_OUT := 0.8
 
 func _ready() -> void:
 	rotate_prompt = RotatePromptOverlay.new()
@@ -47,11 +51,15 @@ func _ready() -> void:
 	var next_shift_number: int = SaveManager.load_into(Simulation.core)
 
 	camera = Camera2D.new()
-	# Centred on the full Westford map's bounding box (roughly
-	# x: -3800..3850, y: -3500..6400) with room to breathe -- checked
-	# against a real rendered screenshot, not guessed blind.
-	camera.position = Vector2(25, 1450)
-	camera.zoom = Vector2(0.05, 0.05)
+	# Starts centred on Town Centre / the police station (both sit at the
+	# world origin) at a close-enough zoom to actually read buildings, unit
+	# markers, and location labels -- the old default zoomed out to fit the
+	# entire 6-district town in frame, which was illegible on a real phone
+	# screen (confirmed by real mobile playtesting, not just a screenshot at
+	# desktop resolution). Zoom out via scroll/the HUD's -/+ buttons to see
+	# the wider town from here.
+	camera.position = Vector2(0, 0)
+	camera.zoom = Vector2(0.18, 0.18)
 	add_child(camera)
 	camera.make_current()
 
