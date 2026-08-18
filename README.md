@@ -11,8 +11,18 @@ a repo, branch, or Supabase project with that app.
 
 ## Play it in a browser
 
-**https://hatters320.github.io/police-game/** (live once GitHub Pages is
+**https://hatters320.github.io/Police-Game/** (live once GitHub Pages is
 switched on for this repo -- see below, it isn't automatic).
+
+Note the capitalisation: the repo is named `Police-Game`, and GitHub Pages
+project-site URLs are case-sensitive -- the lowercase
+`hatters320.github.io/police-game/` hard-404s even though `git clone`/`git
+push` against the lowercase remote URL still work fine (GitHub redirects
+git operations by hostname, but not static Pages hosting). If you land on
+a 404, or your phone seems to be showing an old version of the game after
+an update, check you're on the correctly-cased URL above and try a hard
+refresh -- browsers cache the 39MB `.wasm`/`.pck` aggressively and this
+export doesn't cache-bust them.
 
 The `gh-pages` branch holds a built Web export of the game (Godot's
 Compatibility renderer, no-threads variant so it needs no special server
