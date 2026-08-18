@@ -52,8 +52,11 @@ static func _weight_for(
 	var rate: float = type_def.base_rate_per_hour
 	for variable_name in type_def.district_weight_factors.keys():
 		var value: float = district.get_variable(variable_name)
+		var baseline: float = district.get_baseline_variable(variable_name)
 		var factor: float = type_def.district_weight_factors[variable_name]
-		rate *= 1.0 + ((value - 50.0) / 50.0) * factor
+		# Weighted off deviation from this district's own normal, not a
+		# universal midpoint -- see DistrictState.get_baseline_variable.
+		rate *= 1.0 + ((value - baseline) / 50.0) * factor
 	if type_def.night_weighted and _is_night(current_minute):
 		rate *= 1.6
 	for event in active_events:

@@ -35,6 +35,15 @@ const VARIABLE_NAMES := [
 	"night_economy", "intel_quality", "incident_pressure", "community_confidence",
 ]
 
+## What "normal" looks like for this district on this variable -- the
+## incident probability engine weights off deviation from this, not a
+## universal midpoint, since a quiet district's honest baseline (e.g.
+## asb=20) is not "50% below normal".
+func get_baseline_variable(variable_name: String) -> float:
+	if _baseline.has(variable_name):
+		return _baseline[variable_name]
+	return get_variable(variable_name)
+
 func get_variable(variable_name: String) -> float:
 	match variable_name:
 		"asb": return asb

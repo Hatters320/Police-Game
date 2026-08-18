@@ -72,13 +72,16 @@ the Godot editor and press Run/F5 to play it. See
 [`tests/README.md`](tests/README.md) for how to run both the visual scene
 and the headless Milestone 1 harness yourself.
 
-**One open finding, not yet acted on:** natural incident generation over a
-12h shift came out lower than a rough estimate suggested (~5 incidents vs.
-~18 expected), likely because several district starting values sit below
-the neutral midpoint the probability weighting is centred on,
-systematically damping rates. Worth tuning after real playtesting rather
-than guessing further from one seeded run — a quiet start is arguably
-consistent with spec section 7 anyway.
+**Incident-rate bug fixed.** `IncidentProbabilityEngine` was weighting
+every district variable's effect on incident rate against a hardcoded
+midpoint of 50, but `DistrictState`'s honest quiet-town defaults (asb=20,
+violence=10, burglary_risk=15, etc.) sit well below that, so every
+district was permanently read as "far below normal" and rates were
+damped to ~20-60% of their nominal `base_rate_per_hour`. Fixed by
+weighting off each district's own captured baseline instead (the same
+baseline `decay_toward_baseline`/`apply_patrol_presence` already used) --
+confirmed via the headless harness: a 12h shift on the small test map
+went from ~5 incidents to 31, back in the expected range.
 
 - **Phase 8 — polish.** A day/night visual cycle (full-screen tint, clear
   07:00-18:00, fading to a night tint 20:00-05:00, spec section 33 -- the
