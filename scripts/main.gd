@@ -20,6 +20,7 @@ var incident_panel: IncidentPanelView
 var unit_panel: UnitPanelView
 var neighbourhood_panel: NeighbourhoodPanelView
 var day_night_overlay: DayNightOverlay
+var audio_manager: AudioManager
 var camera: Camera2D
 var _briefing_view: BriefingView
 var _debrief_view: DebriefView
@@ -51,6 +52,9 @@ func _ready() -> void:
 
 	day_night_overlay = DayNightOverlay.new()
 	add_child(day_night_overlay)
+
+	audio_manager = AudioManager.new()
+	add_child(audio_manager)
 
 	incident_panel = IncidentPanelView.new()
 	add_child(incident_panel)

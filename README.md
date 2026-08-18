@@ -118,9 +118,19 @@ neighbourhood officer to an incident and confirmed it reaches AVAILABLE
 again and reveals a fact once the task duration elapses, and confirmed
 every officer is forced UNAVAILABLE once the clock passes 21:00.
 
-Not built: audio, and any visual polish beyond flat coloured shapes
-(spec's "SimCity-style" target art direction is still a placeholder --
-see spec section 2's explicit MVP exclusions and section 61's Phase 8).
+- **Audio (spec section 55).** Minimal by design, per spec: two short
+  synthesized tones (no licensed/recorded assets, no voice acting, no
+  radio dialogue) -- an incident alert on every new incident, and a
+  softer notification tone on incident resolution, fatigue warnings,
+  specialist requests being accepted, and neighbourhood tasks completing.
+  Ambient town noise and vehicle sound are explicitly optional in the
+  spec and were skipped to keep this genuinely minimal. Verified against
+  the real engine: every trigger signal fires `AudioStreamPlayer.play()`
+  without error.
+
+Not built: any visual polish beyond flat coloured shapes (spec's
+"SimCity-style" target art direction is still a placeholder -- see spec
+section 2's explicit MVP exclusions and section 61's Phase 8).
 
 ## Engine
 
