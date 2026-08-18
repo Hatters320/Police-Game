@@ -66,6 +66,48 @@ confirmed text renders proportionally large, a one-finger drag pans by
 roughly the same distance the finger moved, and a real two-finger spread
 gesture zooms in cleanly.
 
+Real playtesting kept reporting incidents were impossible to tap, even
+after several rounds of fixes that verified clean in testing -- the same
+complaint, worded almost identically, after three substantive, verified
+code changes in a row. That pattern -- a fix that's genuinely shipped and
+tested producing zero change in a user's reported symptom -- pointed at
+the fixes never actually reaching the browser, not at the fixes being
+wrong, and that's what it was: GitHub Pages serves `index.pck`/
+`index.wasm` with `Cache-Control: max-age=600`, and every deploy reused
+the same filename, so a browser that had already loaded the page simply
+kept its 10-minute-old cached copy on every reload within that window --
+this had already happened once before, with a stale copy from before the
+repo's `Police-Game` rename. Fixed for good with
+`tools/cachebust_web_export.py`, which renames `index.pck` to a content
+hash of its own bytes and points Godot's Web loader at the new name via
+its `mainPack` config override -- a genuinely new URL on every deploy
+that actually changed, which no cache lifetime can serve stale. Verified
+against the real engine: the renamed pck loads and runs correctly
+end-to-end (zero console errors, full briefing screen renders) via that
+override.
+
+That still left two real, independent bugs once a genuinely fresh build
+was confirmed reaching the browser, neither related to any mobile-sizing
+work: MapView's tap-hit-test radius was a flat 40 *world-space* units,
+which is zoom-dependent in screen terms -- at the default 0.18x zoom
+that was only ~7-8 real screen pixels, shrinking further the more a
+player zoomed out to see multiple stacked-up incidents at once, which is
+exactly when they most needed a forgiving tap target. Replaced with a
+radius derived from a real 44-screen-pixel target divided by the current
+zoom, so the actual on-screen hit area stays constant regardless of zoom
+level, plus closest-marker-wins selection since the now-larger radius at
+low zoom can let a unit and incident marker both qualify. Separately, the
+event feed capped at 4 entries with no way to scroll, so once several
+incidents existed the older ones were simply deleted with nothing to
+scroll back to -- now a real `ScrollContainer` holding the last 20
+entries, with every incident-related line directly tappable to open that
+incident's panel, giving a second, more reliable way to reach an incident
+than finding its marker on a busy map at all. Verified against the real
+engine: a tap 30 screen pixels off a marker's centre at near-minimum zoom
+now still selects it (the old flat-radius code would have missed
+entirely at that zoom), and tapping a feed entry opens the correct
+incident's panel.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
@@ -77,8 +119,14 @@ gesture zooms in cleanly.
 To rebuild and republish the site after making changes: export a Web
 build (`godot4 --headless --export-release "Web" build/web/index.html`,
 using the `export_presets.cfg` described in `tests/README.md` since that
-file isn't committed), then replace the contents of the `gh-pages`
-branch with the new `build/web/` output and push.
+file isn't committed), run `python3 tools/cachebust_web_export.py
+build/web` (renames `index.pck` to a content-hashed filename and patches
+`index.html` to match -- see that script's header for why this step
+isn't optional: GitHub Pages caches these files for 10 minutes, and
+without a hashed filename a browser that already loaded the page simply
+won't see a new build until that cache expires), then replace the
+contents of the `gh-pages` branch with the new `build/web/` output and
+push.
 
 ## Status
 
