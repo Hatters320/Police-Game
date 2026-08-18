@@ -156,7 +156,12 @@ func _add_assigned_units_block(incident: Incident) -> void:
 		content.add_child(row)
 		var label := Label.new()
 		label.text = "%s%s -- %s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit)]
-		label.custom_minimum_size = Vector2(260, 0)
+		# Narrower than the old 260, and wrapping enabled: alongside a
+		# button (widest real case: "Reassign here"), 260 pushed the row to
+		# 429 wide against SidePanelView's 360-wide scroll area on a real
+		# phone -- confirmed by measuring the actual rendered row size.
+		label.custom_minimum_size = Vector2(170, 0)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD
 		row.add_child(label)
 		var recall_button := Button.new()
 		recall_button.text = "Recall"
@@ -219,7 +224,12 @@ func _add_available_units_block(incident: Incident) -> void:
 		content.add_child(row)
 		var label := Label.new()
 		label.text = "%s%s -- %s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit)]
-		label.custom_minimum_size = Vector2(260, 0)
+		# Narrower than the old 260, and wrapping enabled: alongside a
+		# button (widest real case: "Reassign here"), 260 pushed the row to
+		# 429 wide against SidePanelView's 360-wide scroll area on a real
+		# phone -- confirmed by measuring the actual rendered row size.
+		label.custom_minimum_size = Vector2(170, 0)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD
 		row.add_child(label)
 		var send_button := Button.new()
 		send_button.text = "Send" if unit.current_incident_id == "" else "Reassign here"
@@ -281,7 +291,12 @@ func _add_specialist_block(incident: Incident) -> void:
 		content.add_child(row)
 		var label := Label.new()
 		label.text = "%s -- %s" % [unit.display_name, manager.status_text(unit)]
-		label.custom_minimum_size = Vector2(260, 0)
+		# Narrower than the old 260, and wrapping enabled: alongside a
+		# button (widest real case: "Reassign here"), 260 pushed the row to
+		# 429 wide against SidePanelView's 360-wide scroll area on a real
+		# phone -- confirmed by measuring the actual rendered row size.
+		label.custom_minimum_size = Vector2(170, 0)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD
 		row.add_child(label)
 		if unit.status == GameEnums.SpecialistStatus.COMMITTED and unit.committed_incident_id == incident.id:
 			add_dim_line("(already requested for this incident)")
@@ -317,7 +332,12 @@ func _add_neighbourhood_block(incident: Incident) -> void:
 		content.add_child(row)
 		var label := Label.new()
 		label.text = officer.officer_name
-		label.custom_minimum_size = Vector2(260, 0)
+		# Narrower than the old 260, and wrapping enabled: alongside a
+		# button (widest real case: "Reassign here"), 260 pushed the row to
+		# 429 wide against SidePanelView's 360-wide scroll area on a real
+		# phone -- confirmed by measuring the actual rendered row size.
+		label.custom_minimum_size = Vector2(170, 0)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD
 		row.add_child(label)
 		var task_button := Button.new()
 		task_button.text = "Gather Intel"
