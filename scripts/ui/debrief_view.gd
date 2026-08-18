@@ -26,7 +26,10 @@ func setup(summary: Dictionary) -> void:
 	add_child(scroll)
 
 	var content := VBoxContainer.new()
-	content.custom_minimum_size = Vector2(900, 0)
+	# See BriefingView's setup() for why this isn't 900 any more -- that
+	# forced a second, horizontal scroll on top of the vertical one on a
+	# real phone's much narrower logical viewport.
+	content.custom_minimum_size = Vector2(600, 0)
 	content.add_theme_constant_override("separation", 16)
 	scroll.add_child(content)
 

@@ -37,7 +37,13 @@ func setup(world: WorldMapData, shift_number: int) -> void:
 	add_child(scroll)
 
 	var content := VBoxContainer.new()
-	content.custom_minimum_size = Vector2(900, 0)
+	# Below the widest actual row (a patrol picker: label 320 + 12 sep +
+	# picker 300 = 632), not an arbitrary desktop-era width -- the old 900
+	# forced this wider than the scroll area on a real phone (logical
+	# viewport ~660-780 wide once project.godot's stretch/canvas_items
+	# scaling applies), so users needed a second, horizontal scroll on top
+	# of the vertical one just to reach the patrol pickers.
+	content.custom_minimum_size = Vector2(600, 0)
 	content.add_theme_constant_override("separation", 18)
 	scroll.add_child(content)
 
