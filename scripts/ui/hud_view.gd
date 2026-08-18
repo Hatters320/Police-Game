@@ -79,6 +79,15 @@ func _ready() -> void:
 	Simulation.core.incident_manager.incident_resolved.connect(_on_incident_resolved)
 	Simulation.core.fatigue_manager.fatigue_warning.connect(_on_fatigue_warning)
 	Simulation.core.tick_completed.connect(refresh_stats)
+	# Commands.gd's own header comment says "nothing silently no-ops", but
+	# until this, nothing in the UI actually listened for a rejection --
+	# every Send/Recall/Request tap that failed a validity check (most
+	# commonly: an incident tapped the moment it's reported is still
+	# CREATED/REPORTED/ASSESSED, not yet QUEUED, so assign_unit_to_incident
+	# rejects it) did nothing visible at all. Confirmed by a real player
+	# report: "no way to... decide which officer to deploy" on a freshly-
+	# reported incident, which is exactly this window.
+	Simulation.commands().command_rejected.connect(_on_command_rejected)
 	refresh_stats()
 
 func _add_stat_label(parent: Node) -> Label:
@@ -155,6 +164,13 @@ func _on_fatigue_warning(officer_id: String) -> void:
 	_fatigue_warning_count += 1
 	_append_feed("Fatigue warning: %s" % officer_id)
 
+## Player-facing wording for Commands.gd's rejection reasons -- most
+## already read fine as-is ("incident still being assessed", "unit not
+## available"), this just prefixes them so a rejection reads as a direct
+## response to the tap that caused it, not an ambient feed line.
+func _on_command_rejected(_command_name: String, reason: String) -> void:
+	_append_feed("Can't do that -- %s" % reason, Color(0.95, 0.65, 0.3))
+
 func _on_incident_created(incident_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident:
@@ -177,11 +193,12 @@ func _on_incident_resolved(incident_id: String, outcome_id: String) -> void:
 ## phone screen.
 const MAX_FEED_ENTRIES := 4
 
-func _append_feed(text: String) -> void:
+func _append_feed(text: String, color: Color = Color.WHITE) -> void:
 	var label := Label.new()
 	label.text = text
 	label.add_theme_font_size_override("font_size", 16)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	label.modulate = color
 	_feed_list.add_child(label)
 	if _feed_list.get_child_count() > MAX_FEED_ENTRIES:
 		_feed_list.get_child(0).queue_free()
