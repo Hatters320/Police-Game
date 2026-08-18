@@ -19,7 +19,10 @@ Compatibility renderer, no-threads variant so it needs no special server
 headers) -- verified working end-to-end in a real headless Chromium
 browser: boots with no console errors, the full briefing screen renders
 and scrolls, CONFIRM SHIFT PLAN works, and the live map/HUD/simulation
-clock runs correctly.
+clock runs correctly. A phone held in portrait gets a "rotate your
+device" prompt rather than a broken, overflowing layout -- the Web
+export can't lock device orientation the way a native build can, and
+this game's UI is built for landscape (spec section 3/56).
 
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
