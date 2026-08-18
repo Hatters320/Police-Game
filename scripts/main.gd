@@ -49,6 +49,15 @@ var _touch_points: Dictionary = {} # touch index -> Vector2 screen position
 var _pinch_start_distance: float = 0.0
 var _pinch_start_zoom: float = 0.0
 
+## True on a real touchscreen device -- set once in _ready(). Gates the
+## mouse-event branches in _unhandled_input below so our own map gesture
+## code is driven exclusively by real ScreenTouch/ScreenDrag on those
+## devices, since Godot's touch-to-mouse emulation (left enabled so
+## built-in Controls like ScrollContainer keep working via touch) would
+## otherwise fire a synthetic mouse echo for every real touch event,
+## double-applying every pan.
+var _use_touch_events: bool = false
+
 ## Raises every Control's default text size (Godot's built-in default is
 ## 16) before any UI exists -- real phone playtesting found the whole
 ## game illegibly small even after fixing the map's default zoom, since
@@ -59,16 +68,17 @@ var _pinch_start_zoom: float = 0.0
 const DEFAULT_FONT_SIZE := 22
 
 func _ready() -> void:
-	# Web export emulates mouse events from real touch input by default, so
-	# without this a single finger drag fires both a real
-	# InputEventScreenDrag and a synthetic InputEventMouseMotion for the same
-	# physical movement -- _unhandled_input below handles both, so every
-	# drag got applied twice (and pinch fought with a phantom mouse-drag
-	# from whichever finger the browser picked as "primary"). Confirmed via
-	# real mobile playtesting: panning was wildly oversensitive and pinch
-	# barely worked. Controls/Buttons handle real touch input natively, so
-	# nothing in this project actually needs the emulated mouse events.
-	Input.set_emulate_mouse_from_touch(false)
+	# Web export emulates mouse events from real touch input by default.
+	# Turning that off (an earlier attempt at this) stopped a physical drag
+	# from double-firing our own gesture code below, but it also broke
+	# built-in Controls that depend on the emulation to handle touch at
+	# all -- confirmed via real mobile playtesting: the briefing's
+	# ScrollContainer could no longer be scrolled by touch, leaving CONFIRM
+	# SHIFT PLAN unreachable. So the emulation stays on (Godot's default),
+	# and instead _use_touch_events below makes our OWN gesture handling
+	# ignore the synthetic mouse echo on touch devices, leaving Controls'
+	# native use of it untouched.
+	_use_touch_events = DisplayServer.is_touchscreen_available()
 
 	var theme := Theme.new()
 	theme.default_font_size = DEFAULT_FONT_SIZE
@@ -142,8 +152,12 @@ func _ready() -> void:
 ## nodes listening independently would double-handle every input.
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
+		if _use_touch_events:
+			return # real touch drives this device; ignore the emulated echo
 		_handle_mouse_button(event)
 	elif event is InputEventMouseMotion and _pointer_down:
+		if _use_touch_events:
+			return
 		_handle_drag_delta(event.relative, event.position)
 	elif event is InputEventScreenTouch:
 		_handle_screen_touch(event)
