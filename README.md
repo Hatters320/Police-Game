@@ -215,13 +215,33 @@ pre-existing layout issue -- the top stat bar could crowd the speed
 controls at default viewport width -- fixed by tightening the row's
 spacing and font size rather than just moving the new label elsewhere.
 
+**Incident-rate tuning, validated against real automated play.** Built a
+temporary multi-shift playtest harness (real full Westford town, the same
+trivial auto-dispatch stand-in `run_shift_debug.gd` uses, 3 different
+seeds x 4 shifts, plus one 10-consecutive-shift run to check for slow
+drift) rather than tuning from a single shift's numbers. First pass
+surfaced what looked like a serious bug: the backlog of still-open
+incidents grew without bound shift over shift (2 -> 52 -> 100 -> 146).
+Root cause turned out to be in the *harness*, not the game -- it was
+reusing the same `Officer` objects across shifts instead of rebuilding a
+fresh roster each shift the way `main.gd` actually does, so officers
+carried over an `ON_UNIT` status that starved the crew count on every
+shift after the first. Fixed the harness to match real gameplay and
+reran: still-open incidents stay bounded (1-5) across all 10 consecutive
+shifts with no drift, average unit utilisation sits around 35-40%
+(healthy headroom for a real player who won't dispatch as instantly or
+perfectly as the bot), incident volume is steady at ~46-49 per 12h shift
+across all 6 districts fairly evenly, and priority distribution stays
+mostly routine/non-urgent with rare P3s and no P1/P2s in ~120 simulated
+hours -- consistent with spec section 7's "do not begin with extreme
+crime... major incidents should be rare." No incident-rate code changes
+were needed; the earlier baseline-weighting fix already had this right,
+and this confirms it holds up at full-town scale under sustained play.
+
 Not built: real art assets. Everything drawn above is still flat-colour
 primitives, just arranged more deliberately toward the spec's
 "SimCity-style" target (section 2) than the original placeholder shapes
-were. One open item from real playtesting rather than more guessing: the
-full-town incident rate hasn't been tuned against actual play sessions
-yet, just confirmed to be back in a sane order of magnitude after the
-baseline-weighting fix above.
+were.
 
 ## Engine
 
