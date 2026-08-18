@@ -166,6 +166,52 @@ func return_from_break(unit_id: String) -> Dictionary:
 			officer.status = GameEnums.OfficerStatus.ON_UNIT
 	return {"result": GameEnums.CommandResultCode.OK}
 
+## REQUEST SPECIALIST (spec section 11/25) -- not gated by incident type in
+## the MVP, since spec doesn't specify per-type eligibility and "simple
+## rules are sufficient" (section 9). Not guaranteed: rejects if the
+## specialist rolled UNAVAILABLE this shift or is already committed.
+func request_specialist(incident_id: String, specialist_type: GameEnums.SpecialistType) -> Dictionary:
+	var incident: Incident = _ctx.incident_manager.get_incident(incident_id)
+	if incident == null:
+		return _reject("request_specialist", "unknown incident")
+	if not incident.is_open():
+		return _reject("request_specialist", "incident already resolved")
+	var unit: SpecialistUnit = _ctx.specialist_manager.unit_for_type(specialist_type)
+	if unit == null:
+		return _reject("request_specialist", "unknown specialist type")
+	var result: Dictionary = _ctx.specialist_manager.request(unit.id, incident_id)
+	if not result["accepted"]:
+		return _reject("request_specialist", result["reason"])
+	return {"result": GameEnums.CommandResultCode.OK, "eta_minutes": result["eta_minutes"]}
+
+## Tasks a neighbourhood officer to gather intelligence on a specific
+## incident (spec section 10's "intelligence gathering").
+func task_neighbourhood_to_incident(officer_id: String, incident_id: String) -> Dictionary:
+	var incident: Incident = _ctx.incident_manager.get_incident(incident_id)
+	if incident == null:
+		return _reject("task_neighbourhood_to_incident", "unknown incident")
+	var result: Dictionary = _ctx.neighbourhood_manager.task_to_incident(officer_id, incident_id)
+	if not result["accepted"]:
+		return _reject("task_neighbourhood_to_incident", result["reason"])
+	return {"result": GameEnums.CommandResultCode.OK}
+
+## General proactive/community-engagement tasking to a district (spec
+## section 10's "community engagement / ASB / reassurance").
+func task_neighbourhood_engagement(officer_id: String, district_id: String) -> Dictionary:
+	var district: DistrictState = _ctx.district_manager.get_state(district_id)
+	if district == null:
+		return _reject("task_neighbourhood_engagement", "unknown district")
+	var result: Dictionary = _ctx.neighbourhood_manager.task_engagement(officer_id, district_id)
+	if not result["accepted"]:
+		return _reject("task_neighbourhood_engagement", result["reason"])
+	return {"result": GameEnums.CommandResultCode.OK}
+
+func recall_neighbourhood_officer(officer_id: String) -> Dictionary:
+	var result: Dictionary = _ctx.neighbourhood_manager.recall(officer_id)
+	if not result["accepted"]:
+		return _reject("recall_neighbourhood_officer", result["reason"])
+	return {"result": GameEnums.CommandResultCode.OK}
+
 func set_speed(multiplier: float) -> Dictionary:
 	_ctx.game_clock.speed_multiplier = maxf(multiplier, 0.0)
 	_ctx.game_clock.paused = false

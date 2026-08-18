@@ -26,6 +26,8 @@ var event_manager: EventManager = EventManager.new()
 var intelligence_manager: IntelligenceManager = IntelligenceManager.new()
 var fatigue_manager: FatigueManager = FatigueManager.new()
 var community_manager: CommunityManager = CommunityManager.new()
+var specialist_manager: SpecialistManager = SpecialistManager.new()
+var neighbourhood_manager: NeighbourhoodManager = NeighbourhoodManager.new()
 var commands: Commands = Commands.new()
 var debug_commands: DebugCommands = DebugCommands.new()
 
@@ -46,6 +48,8 @@ func initialize(
 	district_manager.setup_from_world(world)
 	incident_manager.setup(incident_type_defs, world)
 	event_manager.setup(event_defs)
+	specialist_manager.setup()
+	neighbourhood_manager.setup()
 
 	if rng_seed != 0:
 		rng.seed = rng_seed
@@ -64,6 +68,8 @@ func initialize(
 	ctx.intelligence_manager = intelligence_manager
 	ctx.fatigue_manager = fatigue_manager
 	ctx.community_manager = community_manager
+	ctx.specialist_manager = specialist_manager
+	ctx.neighbourhood_manager = neighbourhood_manager
 	ctx.commands = commands
 	ctx.debug_commands = debug_commands
 	ctx.rng = rng
@@ -83,6 +89,7 @@ func prepare_shift(shift_number: int, start_minute: int, duration_minutes: int, 
 	var station: LocationDefinition = world.get_location(world.police_station_location_id)
 	resource_manager.form_units(officer_manager.available_officers(), station)
 	shift_manager.prepare_shift(shift_number, start_minute, duration_minutes)
+	specialist_manager.setup_shift(rng)
 	game_clock.total_minutes = start_minute
 
 ## Confirms the briefing (spec section 16's "confirm the shift plan") --
@@ -135,6 +142,8 @@ func _tick_sim(dt_minutes: int) -> void:
 	resource_manager.tick(ctx)
 	incident_manager.tick(ctx)
 	fatigue_manager.tick(ctx)
+	specialist_manager.tick(ctx)
+	neighbourhood_manager.tick(ctx)
 	tick_completed.emit()
 
 func _end_shift() -> void:

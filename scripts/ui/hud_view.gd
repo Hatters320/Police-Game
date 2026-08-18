@@ -87,6 +87,17 @@ func wire_zoom_controls(zoom_in: Callable, zoom_out: Callable) -> void:
 	_add_button(_controls_row, "-", zoom_out)
 	_add_button(_controls_row, "+", zoom_in)
 
+## Opens NeighbourhoodPanelView (spec section 10) -- placed alongside the
+## overlay toggles since it's the same "open a side panel" action, not a
+## simulation-speed control like the buttons in _controls_row.
+func wire_neighbourhood_panel(on_pressed: Callable) -> void:
+	var button := Button.new()
+	button.text = "Neighbourhood"
+	button.add_theme_font_size_override("font_size", 12)
+	button.custom_minimum_size = Vector2(0, 40)
+	button.pressed.connect(on_pressed)
+	_overlay_row.add_child(button)
+
 ## Called once by main.gd after MapView exists -- builds the overlay
 ## toggle row (spec section 41). Kept out of _ready() since it needs a
 ## MapView reference to wire the buttons to.

@@ -62,3 +62,25 @@ enum CommandIntent {
 }
 
 enum CommandResultCode { OK, REJECTED }
+
+## Spec section 11: external resources the Inspector can request but does
+## not permanently own.
+enum SpecialistType { TRAFFIC, DOG, FIREARMS }
+
+enum SpecialistStatus {
+	AVAILABLE,
+	COMMITTED,
+	UNAVAILABLE,
+	NEARBY,
+	FAR_AWAY,
+}
+
+## Spec section 10: neighbourhood officers exist separately from the main
+## response team and have their own task states.
+enum NeighbourhoodStatus {
+	AVAILABLE,
+	COMMUNITY_ENGAGEMENT,
+	PROACTIVE_TASK,
+	EXISTING_TASK,
+	UNAVAILABLE,
+}

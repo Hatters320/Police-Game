@@ -20,6 +20,8 @@ var event_manager: EventManager
 var intelligence_manager: IntelligenceManager
 var fatigue_manager: FatigueManager
 var community_manager: CommunityManager
+var specialist_manager: SpecialistManager
+var neighbourhood_manager: NeighbourhoodManager
 var commands: Commands
 var debug_commands: DebugCommands
 var rng: RandomNumberGenerator

@@ -43,6 +43,8 @@ func refresh() -> void:
 	_add_intent_block(incident)
 	_add_assigned_units_block(incident)
 	_add_available_units_block(incident)
+	_add_specialist_block(incident)
+	_add_neighbourhood_block(incident)
 
 func _add_header(type_def: IncidentTypeDefinition, incident: Incident, location: LocationDefinition) -> void:
 	add_title(type_def.display_name if type_def else incident.type_id)
@@ -215,3 +217,72 @@ func _incident_summary(incident_id: String) -> String:
 
 func _type_def_for(type_id: String) -> IncidentTypeDefinition:
 	return Simulation.core.incident_manager.get_type_definition(type_id)
+
+## REQUEST SPECIALIST (spec section 11/25): traffic/dog/firearms, external
+## resources that aren't guaranteed -- shows current availability/ETA next
+## to the button so the Inspector knows what they're asking for before
+## they ask, same "consequences visible before the click" pattern as the
+## rest of this panel.
+func _add_specialist_block(incident: Incident) -> void:
+	add_divider()
+	add_mini_header("REQUEST SPECIALIST")
+	var manager: SpecialistManager = Simulation.core.specialist_manager
+	for pair in [
+		[GameEnums.SpecialistType.TRAFFIC, "Traffic"],
+		[GameEnums.SpecialistType.DOG, "Dog"],
+		[GameEnums.SpecialistType.FIREARMS, "Firearms"],
+	]:
+		var unit: SpecialistUnit = manager.unit_for_type(pair[0])
+		if unit == null:
+			continue
+		var row := HBoxContainer.new()
+		content.add_child(row)
+		var label := Label.new()
+		label.text = "%s -- %s" % [unit.display_name, manager.status_text(unit)]
+		label.custom_minimum_size = Vector2(220, 0)
+		row.add_child(label)
+		if unit.status == GameEnums.SpecialistStatus.COMMITTED and unit.committed_incident_id == incident.id:
+			add_dim_line("(already requested for this incident)")
+			continue
+		var can_request: bool = unit.status != GameEnums.SpecialistStatus.UNAVAILABLE and unit.status != GameEnums.SpecialistStatus.COMMITTED
+		if can_request:
+			var request_button := Button.new()
+			request_button.text = "Request"
+			request_button.pressed.connect(_on_request_specialist.bind(pair[0]))
+			row.add_child(request_button)
+
+func _on_request_specialist(specialist_type: GameEnums.SpecialistType) -> void:
+	Simulation.commands().request_specialist(_current_incident_id, specialist_type)
+	refresh()
+
+## Neighbourhood intelligence-gathering tasking (spec section 10) tied to
+## this specific incident, distinct from the general community-engagement
+## tasking in NeighbourhoodPanelView.
+func _add_neighbourhood_block(incident: Incident) -> void:
+	add_divider()
+	add_mini_header("NEIGHBOURHOOD TEAM")
+	var manager: NeighbourhoodManager = Simulation.core.neighbourhood_manager
+	var any_available := false
+	for officer: NeighbourhoodOfficer in manager.officers.values():
+		if officer.status == GameEnums.NeighbourhoodStatus.EXISTING_TASK and officer.task_incident_id == incident.id:
+			add_dim_line("%s gathering intelligence here (%d min)" % [officer.officer_name, int(ceil(officer.task_minutes_remaining))])
+			continue
+		if officer.status != GameEnums.NeighbourhoodStatus.AVAILABLE:
+			continue
+		any_available = true
+		var row := HBoxContainer.new()
+		content.add_child(row)
+		var label := Label.new()
+		label.text = officer.officer_name
+		label.custom_minimum_size = Vector2(220, 0)
+		row.add_child(label)
+		var task_button := Button.new()
+		task_button.text = "Gather Intel"
+		task_button.pressed.connect(_on_task_neighbourhood.bind(officer.id))
+		row.add_child(task_button)
+	if not any_available:
+		add_dim_line("(no neighbourhood officers free)")
+
+func _on_task_neighbourhood(officer_id: String) -> void:
+	Simulation.commands().task_neighbourhood_to_incident(officer_id, _current_incident_id)
+	refresh()

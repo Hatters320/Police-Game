@@ -18,6 +18,7 @@ var map_view: MapView
 var hud_view: HudView
 var incident_panel: IncidentPanelView
 var unit_panel: UnitPanelView
+var neighbourhood_panel: NeighbourhoodPanelView
 var day_night_overlay: DayNightOverlay
 var camera: Camera2D
 var _briefing_view: BriefingView
@@ -57,6 +58,9 @@ func _ready() -> void:
 	unit_panel = UnitPanelView.new()
 	add_child(unit_panel)
 
+	neighbourhood_panel = NeighbourhoodPanelView.new()
+	add_child(neighbourhood_panel)
+
 	map_view = MapView.new()
 	add_child(map_view)
 	map_view.setup(world, incident_panel, unit_panel)
@@ -65,6 +69,7 @@ func _ready() -> void:
 	add_child(hud_view)
 	hud_view.wire_overlays(map_view)
 	hud_view.wire_zoom_controls(func(): _zoom_by(ZOOM_STEP_IN), func(): _zoom_by(ZOOM_STEP_OUT))
+	hud_view.wire_neighbourhood_panel(func(): neighbourhood_panel.open())
 	hud_view.hide()
 
 	_begin_briefing(next_shift_number)
@@ -89,6 +94,7 @@ func _begin_briefing(shift_number: int) -> void:
 	hud_view.hide()
 	incident_panel.close()
 	unit_panel.close()
+	neighbourhood_panel.close()
 
 	_briefing_view = BriefingView.new()
 	add_child(_briefing_view)
@@ -108,6 +114,7 @@ func _on_shift_ended(summary: Dictionary) -> void:
 	hud_view.hide()
 	incident_panel.close()
 	unit_panel.close()
+	neighbourhood_panel.close()
 
 	SaveManager.save(Simulation.core, int(summary["shift_number"]) + 1)
 

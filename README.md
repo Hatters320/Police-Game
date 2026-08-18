@@ -93,10 +93,34 @@ went from ~5 incidents to 31, back in the expected range.
   alpha (0.00 / 0.42) and by driving the zoom buttons' underlying callable
   and confirming camera zoom actually changes.
 
-Not built: specialist units (traffic/dog/firearms), a separate
-neighbourhood team, audio, and any visual polish beyond flat coloured
-shapes (spec's "SimCity-style" target art direction is still a placeholder
--- see spec section 2's explicit MVP exclusions and section 61's Phase 8).
+- **Specialist units (spec section 11).** 1 traffic, 1 dog, 1 firearms
+  unit -- external resources represented with simplified behaviour, not
+  guaranteed. Each rolls a fresh availability (available/nearby/far
+  away/unavailable) once per shift; requesting one from the incident panel
+  shows its status and travel time up front, commits it for a simulated
+  task duration, and automatically frees it back to available afterwards.
+- **Neighbourhood team (spec section 10).** 3 PCSOs, modelled separately
+  from the response team with their own states (available/community
+  engagement/proactive task/existing task/unavailable). On duty
+  07:00-21:00 only -- forced off duty outside that window regardless of
+  what they were doing, which matters since the game's one shift runs
+  17:00-05:00 and mostly falls outside it. Tasked to a specific incident
+  for intelligence gathering from the incident panel, or to general
+  district community engagement/reassurance from a new roster panel
+  (HUD's "Neighbourhood" button) -- engagement gently raises police
+  visibility and community confidence in that district for as long as
+  they're tasked.
+
+Verified against the real engine: forced a specialist to NEARBY and
+confirmed a request returns the correct ETA and commits it, forced
+another to UNAVAILABLE and confirmed a request is rejected; tasked a
+neighbourhood officer to an incident and confirmed it reaches AVAILABLE
+again and reveals a fact once the task duration elapses, and confirmed
+every officer is forced UNAVAILABLE once the clock passes 21:00.
+
+Not built: audio, and any visual polish beyond flat coloured shapes
+(spec's "SimCity-style" target art direction is still a placeholder --
+see spec section 2's explicit MVP exclusions and section 61's Phase 8).
 
 ## Engine
 
