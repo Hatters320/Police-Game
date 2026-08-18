@@ -166,6 +166,24 @@ every officer is forced UNAVAILABLE once the clock passes 21:00.
   base colours. Verified against the real engine at both the full-town
   zoom and a close-up, and with an overlay active.
 
+- **Location markers by land use, plus a river.** Every gameplay location
+  used to render as the same grey dot regardless of what it was --
+  replaced with a per-tag look (`MapView.LOCATION_STYLES`): a red/white
+  cross for the hospital, a wide green oval for the football stadium, a
+  small house glyph for residential streets, distinct colours for shops/
+  pubs/community centres/schools/industrial units/car parks, and parks
+  rendered as a loose cluster of green tree-canopy dots instead of a
+  building-shaped marker. The police station and fire station (both
+  tagged "station") are told apart by checking which one is actually
+  `WorldMapData.police_station_location_id`. A purely decorative river
+  now runs between South Residential and Rural/Outskirts, tying into the
+  "Riverside Walk"/"Riverside Gardens" location names already in
+  `WestfordMapFactory` -- computed from those two districts' real
+  centroids so it lines up with actual geometry rather than guessed
+  coordinates, and skipped entirely on maps that don't have both
+  districts (e.g. the small test map). Verified against the real engine
+  with screenshots of Town Centre, Northside, and the river/rural area.
+
 - **Weather (spec section 34).** Clear or rain, rolled once per shift
   (30% rain) -- deliberately shallow per spec's "do not build detailed
   weather simulation." Rain suppresses ASB's rate (people don't loiter

@@ -139,6 +139,7 @@ func _draw_static_map() -> void:
 		label.modulate = Color(0.6, 0.65, 0.75)
 		add_child(label)
 
+	_draw_river()
 	_draw_building_footprints()
 
 	for edge: RoadEdge in _world.road_edges:
@@ -162,19 +163,100 @@ func _draw_static_map() -> void:
 		add_child(center_line)
 
 	for location: LocationDefinition in _world.locations:
-		var marker := Node2D.new()
-		marker.position = location.position
-		add_child(marker)
-		var is_station: bool = location.tags.has("station")
-		var radius: float = 18.0 if is_station else 10.0
-		var color: Color = Color(0.2, 0.35, 0.85) if is_station else Color(0.75, 0.75, 0.78)
-		marker.add_child(make_circle(radius, color))
-		var label := Label.new()
-		label.text = location.display_name
-		label.position = Vector2(14, -8)
-		label.add_theme_font_size_override("font_size", 12)
-		label.modulate = Color(0.85, 0.85, 0.85)
-		marker.add_child(label)
+		_add_location_marker(location)
+
+## Per-tag look for gameplay locations (spec section 53/54's readability
+## target) -- distinct colour/shape per land-use tag instead of one grey
+## dot for everything, so the map communicates what a place is at a glance
+## without needing real art. Falls back to a plain grey dot for any
+## location with no recognised tag.
+const LOCATION_STYLES := {
+	"hospital": {"color": Color(0.88, 0.86, 0.9), "shape": "cross", "radius": 16.0},
+	"school": {"color": Color(0.78, 0.68, 0.35), "shape": "square", "radius": 13.0},
+	"transport": {"color": Color(0.4, 0.4, 0.46), "shape": "square", "radius": 15.0},
+	"event_venue": {"color": Color(0.3, 0.6, 0.35), "shape": "oval", "radius": 22.0},
+	"retail": {"color": Color(0.78, 0.45, 0.22), "shape": "square", "radius": 9.0},
+	"night_economy": {"color": Color(0.55, 0.28, 0.55), "shape": "square", "radius": 9.0},
+	"community": {"color": Color(0.3, 0.58, 0.58), "shape": "square", "radius": 11.0},
+	"car_park": {"color": Color(0.58, 0.58, 0.62), "shape": "square", "radius": 10.0},
+	"residential": {"color": Color(0.68, 0.48, 0.32), "shape": "house", "radius": 9.0},
+	"rural": {"color": Color(0.48, 0.42, 0.26), "shape": "square", "radius": 10.0},
+	"industrial": {"color": Color(0.42, 0.44, 0.5), "shape": "square", "radius": 11.0},
+	"park": {"color": Color(0.32, 0.58, 0.32), "shape": "trees", "radius": 26.0},
+}
+
+func _add_location_marker(location: LocationDefinition) -> void:
+	var marker := Node2D.new()
+	marker.position = location.position
+	add_child(marker)
+
+	if location.tags.has("station"):
+		var is_police: bool = location.id == _world.police_station_location_id
+		marker.add_child(make_circle(18.0, Color(0.2, 0.35, 0.85) if is_police else Color(0.85, 0.3, 0.2)))
+	elif location.tags.has("park"):
+		_add_tree_cluster(marker, LOCATION_STYLES["park"]["color"], LOCATION_STYLES["park"]["radius"])
+	else:
+		var style: Dictionary = _style_for(location)
+		match style["shape"]:
+			"cross": marker.add_child(_make_cross(style["radius"], style["color"]))
+			"house": marker.add_child(_make_house(style["radius"], style["color"]))
+			"oval": marker.add_child(_make_oval(style["radius"], style["color"]))
+			_: marker.add_child(_make_rect(Vector2(style["radius"], style["radius"]) * 1.6, style["color"]))
+
+	var label := Label.new()
+	label.text = location.display_name
+	label.position = Vector2(14, -8)
+	label.add_theme_font_size_override("font_size", 12)
+	label.modulate = Color(0.85, 0.85, 0.85)
+	marker.add_child(label)
+
+func _style_for(location: LocationDefinition) -> Dictionary:
+	for tag in location.tags:
+		if LOCATION_STYLES.has(tag):
+			return LOCATION_STYLES[tag]
+	return {"color": Color(0.75, 0.75, 0.78), "shape": "square", "radius": 10.0}
+
+func _make_cross(radius: float, color: Color) -> Node2D:
+	var group := Node2D.new()
+	group.add_child(make_circle(radius, Color(0.2, 0.2, 0.22, 0.5))) # subtle backing so white reads against the ground
+	var bar_a := _make_rect(Vector2(radius * 0.5, radius * 1.5), Color(0.85, 0.2, 0.2))
+	var bar_b := _make_rect(Vector2(radius * 1.5, radius * 0.5), Color(0.85, 0.2, 0.2))
+	group.add_child(bar_a)
+	group.add_child(bar_b)
+	return group
+
+## A tiny square base with a triangular roof -- the one departure from
+## flat rects/circles, since "a street of houses" reads far better as a
+## house glyph than as another shop-like square.
+func _make_house(radius: float, color: Color) -> Node2D:
+	var group := Node2D.new()
+	var base := _make_rect(Vector2(radius * 1.6, radius * 1.2), color)
+	base.position = Vector2(0, radius * 0.3)
+	group.add_child(base)
+	var roof := Polygon2D.new()
+	roof.polygon = PackedVector2Array([
+		Vector2(-radius * 1.0, -radius * 0.1), Vector2(radius * 1.0, -radius * 0.1), Vector2(0, -radius * 1.1),
+	])
+	roof.color = Color(color.r * 0.6, color.g * 0.6, color.b * 0.6)
+	group.add_child(roof)
+	return group
+
+func _make_oval(radius: float, color: Color) -> Polygon2D:
+	var oval: Polygon2D = make_circle(radius, color, 20)
+	oval.scale = Vector2(1.3, 0.8) # a stadium pitch reads better wide than round
+	return oval
+
+## Parks get a loose cluster of small tree-canopy dots instead of a
+## building-shaped marker, so green space actually looks like green space.
+func _add_tree_cluster(parent: Node2D, color: Color, radius: float) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(parent.position.x * 1000.0 + parent.position.y) # stable per-location layout
+	for i in range(9):
+		var angle: float = rng.randf_range(0.0, TAU)
+		var dist: float = sqrt(rng.randf_range(0.0, 1.0)) * radius
+		var tree := make_circle(rng.randf_range(6.0, 11.0), Color(color.r, color.g, color.b, 0.75), 8)
+		tree.position = Vector2(cos(angle), sin(angle)) * dist
+		parent.add_child(tree)
 
 ## A single large rect behind everything so the town sits on a ground
 ## colour instead of the viewport's void black -- computed from the actual
@@ -198,6 +280,37 @@ func _draw_ground_backdrop() -> void:
 	])
 	backdrop.color = GROUND_COLOR
 	add_child(backdrop)
+
+## Purely decorative river between South Residential and Rural/Outskirts,
+## tying into the "Riverside Walk"/"Riverside Gardens" flavour names
+## already in WestfordMapFactory. Skipped entirely if either district
+## doesn't exist on the currently loaded map (e.g. the small test map),
+## rather than guessing coordinates that wouldn't line up with real
+## district geometry.
+func _draw_river() -> void:
+	var south: DistrictDefinition = _world.get_district(DistrictIds.SOUTH_RESIDENTIAL)
+	var rural: DistrictDefinition = _world.get_district(DistrictIds.RURAL_OUTSKIRTS)
+	if south == null or rural == null:
+		return
+	var a: Vector2 = _polygon_centroid(south.boundary)
+	var b: Vector2 = _polygon_centroid(rural.boundary)
+	var bow: Vector2 = (b - a).orthogonal().normalized() * 350.0
+	var mid: Vector2 = a.lerp(b, 0.5) + bow
+	var points := PackedVector2Array([
+		a + (b - a).normalized() * 200.0,
+		a.lerp(mid, 0.6),
+		mid,
+		mid.lerp(b, 0.6),
+		b - (b - a).normalized() * 500.0,
+	])
+	var river := Line2D.new()
+	river.points = points
+	river.width = 90.0
+	river.default_color = Color(0.25, 0.4, 0.55, 0.55)
+	river.joint_mode = Line2D.LINE_JOINT_ROUND
+	river.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	river.end_cap_mode = Line2D.LINE_CAP_ROUND
+	add_child(river)
 
 ## Purely decorative building footprints (spec section 53 wants 500-800 of
 ## these) -- generated here at draw time from each district's boundary,
