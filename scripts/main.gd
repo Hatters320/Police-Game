@@ -59,6 +59,17 @@ var _pinch_start_zoom: float = 0.0
 const DEFAULT_FONT_SIZE := 22
 
 func _ready() -> void:
+	# Web export emulates mouse events from real touch input by default, so
+	# without this a single finger drag fires both a real
+	# InputEventScreenDrag and a synthetic InputEventMouseMotion for the same
+	# physical movement -- _unhandled_input below handles both, so every
+	# drag got applied twice (and pinch fought with a phantom mouse-drag
+	# from whichever finger the browser picked as "primary"). Confirmed via
+	# real mobile playtesting: panning was wildly oversensitive and pinch
+	# barely worked. Controls/Buttons handle real touch input natively, so
+	# nothing in this project actually needs the emulated mouse events.
+	Input.set_emulate_mouse_from_touch(false)
+
 	var theme := Theme.new()
 	theme.default_font_size = DEFAULT_FONT_SIZE
 	get_tree().root.theme = theme

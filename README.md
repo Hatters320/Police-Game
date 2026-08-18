@@ -35,6 +35,27 @@ by injecting drag and pinch input events and confirming the camera's
 position and zoom change correctly, and that a plain tap still opens an
 incident/unit panel instead of being swallowed as a drag.
 
+That round of fixes still looked wrong on a real phone, though: text stayed
+small, panning flew off-screen, and pinch barely worked. Root cause turned
+out to be two separate Godot Web export defaults, not the gesture code
+itself. `project.godot` had no `display/window/stretch` settings, so the
+canvas rendered 1:1 into the browser's raw devicePixelRatio-scaled pixel
+buffer -- on a real phone (DPR 2-3) every font size and touch-event delta
+was reported in that inflated pixel space, making text look 2-3x smaller
+and drag panning 2-3x too fast. Separately, Godot's Web export emulates
+mouse events from touch by default, so a single finger drag fired both a
+real touch-drag event and a synthetic mouse-drag event for the same
+physical movement, double-applying every pan and fighting with pinch.
+Fixed with `window/stretch/mode="canvas_items"` + `aspect="expand"` and a
+small mobile-sized base viewport (640x360) in `project.godot`, plus
+`Input.set_emulate_mouse_from_touch(false)` in `main.gd`. Verified this
+time with real multi-touch input dispatched through Chromium's DevTools
+protocol against a phone-realistic browser context (844x390, device pixel
+ratio 3, touch-enabled) -- not just synthetic in-engine event calls -- and
+confirmed text renders proportionally large, a one-finger drag pans by
+roughly the same distance the finger moved, and a real two-finger spread
+gesture zooms in cleanly.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
