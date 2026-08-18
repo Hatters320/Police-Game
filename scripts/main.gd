@@ -186,7 +186,7 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 	else:
 		_pointer_down = false
 		if not _pointer_dragged:
-			map_view.handle_tap(get_global_mouse_position())
+			map_view.handle_tap(get_global_mouse_position(), camera.zoom.x)
 
 func _handle_drag_delta(relative: Vector2, current_screen: Vector2) -> void:
 	if current_screen.distance_to(_pointer_start_screen) > TAP_DRAG_THRESHOLD:
@@ -211,7 +211,7 @@ func _handle_screen_touch(event: InputEventScreenTouch) -> void:
 		_pointer_down = false
 		_pinch_start_distance = 0.0
 	if was_single_tap:
-		map_view.handle_tap(get_global_mouse_position())
+		map_view.handle_tap(get_global_mouse_position(), camera.zoom.x)
 
 func _handle_screen_drag(event: InputEventScreenDrag) -> void:
 	_touch_points[event.index] = event.position

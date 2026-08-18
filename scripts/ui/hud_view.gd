@@ -16,6 +16,7 @@ var _fatigue_label: Label
 var _feed_list: VBoxContainer
 var _overlay_row: HBoxContainer
 var _controls_row: HBoxContainer
+var _map_view: MapView
 
 var _fatigue_warning_count: int = 0
 
@@ -62,11 +63,23 @@ func _ready() -> void:
 	_add_button(_controls_row, "2x", func(): Simulation.commands().set_speed(2.0))
 	_add_button(_controls_row, "4x", func(): Simulation.commands().set_speed(4.0))
 
+	# A real user report ("as [incidents] stack up I can't scroll the
+	# screen or scroll through them") found this used to just delete
+	# anything past MAX_FEED_ENTRIES with nowhere to scroll back to even
+	# once wrapped in a container that could scroll -- there was no history
+	# left to show. Now a real ScrollContainer over a much longer history
+	# (see MAX_FEED_ENTRIES below), and each incident-related line is
+	# tappable to open that incident directly, since finding its marker on
+	# a busy map is a second, harder way to reach the same thing.
+	var feed_scroll := ScrollContainer.new()
+	feed_scroll.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	feed_scroll.position = Vector2(20, -90)
+	feed_scroll.custom_minimum_size = Vector2(460, 80)
+	add_child(feed_scroll)
+
 	_feed_list = VBoxContainer.new()
-	_feed_list.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_feed_list.position = Vector2(20, -90)
-	_feed_list.custom_minimum_size = Vector2(460, 80)
-	add_child(_feed_list)
+	_feed_list.custom_minimum_size = Vector2(460, 0)
+	feed_scroll.add_child(_feed_list)
 
 	_overlay_row = HBoxContainer.new()
 	_overlay_row.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -121,9 +134,11 @@ func wire_neighbourhood_panel(on_pressed: Callable) -> void:
 	_overlay_row.add_child(button)
 
 ## Called once by main.gd after MapView exists -- builds the overlay
-## toggle row (spec section 41). Kept out of _ready() since it needs a
-## MapView reference to wire the buttons to.
+## toggle row (spec section 41), and keeps the reference for the event
+## feed's tap-to-open-incident lines below. Kept out of _ready() since it
+## needs a MapView reference to wire the buttons to.
 func wire_overlays(map_view: MapView) -> void:
+	_map_view = map_view
 	_add_overlay_button("None", map_view, MapView.OverlayType.NONE)
 	_add_overlay_button("ASB", map_view, MapView.OverlayType.ASB)
 	_add_overlay_button("Violence", map_view, MapView.OverlayType.VIOLENCE)
@@ -174,26 +189,45 @@ func _on_command_rejected(_command_name: String, reason: String) -> void:
 func _on_incident_created(incident_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident:
-		_append_feed("New %s (P%d) at %s" % [incident.type_id, incident.priority, incident.location_id])
+		_append_feed("New %s (P%d) at %s" % [incident.type_id, incident.priority, incident.location_id], Color.WHITE, incident_id)
 
 func _on_incident_escalated(incident_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident:
-		_append_feed("ESCALATED: %s (now P%d)" % [incident.type_id, incident.priority])
+		_append_feed("ESCALATED: %s (now P%d)" % [incident.type_id, incident.priority], Color.WHITE, incident_id)
 
 func _on_incident_resolved(incident_id: String, outcome_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident:
 		_append_feed("Resolved %s -> %s" % [incident.type_id, outcome_id])
 
-## Kept short now that each line renders bigger and the feed's reserved
-## screen space was cut back (see _feed_list above) -- older entries
-## scrolling off matters less than the visible ones actually being
-## readable, and not covering more of the map than necessary, on a real
-## phone screen.
-const MAX_FEED_ENTRIES := 4
+## Enough history to actually scroll through, not just a handful of lines
+## that immediately fall off the end -- a real user found the previous
+## cap of 4 meant there was nothing left to scroll BACK to even once this
+## became a real ScrollContainer, since anything past the cap was already
+## queue_free()'d.
+const MAX_FEED_ENTRIES := 20
 
-func _append_feed(text: String, color: Color = Color.WHITE) -> void:
+## incident_id, when given, makes this line a tappable shortcut to that
+## incident's panel -- a busy real phone screen can make the matching map
+## marker hard to find/hit even with MapView's zoom-scaled tap radius, so
+## the feed doubles as a full, scrollable incident list.
+func _append_feed(text: String, color: Color = Color.WHITE, incident_id: String = "") -> void:
+	if incident_id != "":
+		var button := Button.new()
+		button.text = text
+		button.flat = true
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.clip_text = false
+		button.add_theme_font_size_override("font_size", 16)
+		button.modulate = color
+		button.pressed.connect(func():
+			if _map_view:
+				_map_view.open_incident_panel(incident_id))
+		_feed_list.add_child(button)
+		if _feed_list.get_child_count() > MAX_FEED_ENTRIES:
+			_feed_list.get_child(0).queue_free()
+		return
 	var label := Label.new()
 	label.text = text
 	label.add_theme_font_size_override("font_size", 16)

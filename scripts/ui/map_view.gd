@@ -21,7 +21,17 @@ const PRIORITY_COLORS := {
 	5: Color(0.3, 0.75, 0.3),   # non-urgent -- green
 }
 
-const CLICK_RADIUS := 40.0
+## A real touch-target radius in SCREEN pixels, not world units -- the old
+## flat 40-world-unit CLICK_RADIUS was tuned once against a fixed desktop
+## zoom, but main.gd's camera now ranges 0.04-2.5x zoom, and world-space
+## distance shrinks to almost nothing on screen once zoomed out (at the
+## default 0.18 zoom it was already only ~7px; zoomed further out to see
+## several incidents at once -- exactly when a player most needs to tap
+## one -- it was closer to 2-3px). Confirmed by a real user unable to tap
+## incidents at all. _click_radius_world() converts this back to world
+## units against the CURRENT zoom each time, so the actual on-screen
+## target size stays constant regardless of how zoomed in/out the camera is.
+const TAP_RADIUS_SCREEN_PX := 44.0
 
 ## Map overlays (spec section 41) -- simple district tinting, not a real
 ## heatmap texture, which is enough at this scale/fidelity per section 54.
@@ -510,28 +520,55 @@ func _heat_color(value: float) -> Color:
 ## listens for input directly, since telling a tap from the start of a
 ## pan gesture needs to see the whole gesture, not just the initial press
 ## (see main.gd's header comment on why that lives there now).
-func handle_tap(world_pos: Vector2) -> void:
-	_handle_click(world_pos)
+func handle_tap(world_pos: Vector2, camera_zoom: float) -> void:
+	_handle_click(world_pos, camera_zoom)
 
-func _handle_click(click_pos: Vector2) -> void:
+## Shared by a marker tap and HudView's event feed (spec section 39's
+## incident notifications now double as a tappable incident list, since a
+## busy real phone screen can make a specific marker hard to find/hit even
+## with the zoom-scaled tap radius above) -- keeps the "opening one panel
+## closes the other" rule in one place either way.
+func open_incident_panel(incident_id: String) -> void:
+	if not _incident_markers.has(incident_id):
+		return
+	if _unit_panel:
+		_unit_panel.close()
+	if _incident_panel:
+		_incident_panel.open(incident_id)
+
+func _handle_click(click_pos: Vector2, camera_zoom: float) -> void:
+	var click_radius: float = TAP_RADIUS_SCREEN_PX / camera_zoom
+
+	var closest_unit_id: String = ""
+	var closest_unit_dist: float = INF
 	for unit_id in _unit_markers.keys():
-		var marker: UnitMarker = _unit_markers[unit_id]
-		if marker.position.distance_to(click_pos) <= CLICK_RADIUS:
-			if _incident_panel:
-				_incident_panel.close()
-			if _unit_panel:
-				_unit_panel.open(unit_id)
-			_select_unit(unit_id)
-			return
+		var dist: float = (_unit_markers[unit_id] as UnitMarker).position.distance_to(click_pos)
+		if dist <= click_radius and dist < closest_unit_dist:
+			closest_unit_id = unit_id
+			closest_unit_dist = dist
+
+	var closest_incident_id: String = ""
+	var closest_incident_dist: float = INF
 	for incident_id in _incident_markers.keys():
-		var marker: IncidentMarker = _incident_markers[incident_id]
-		if marker.position.distance_to(click_pos) <= CLICK_RADIUS:
-			if _unit_panel:
-				_unit_panel.close()
-			if _incident_panel:
-				_incident_panel.open(incident_id)
-			return
-	# Clicked empty space -- close whichever panel is open.
+		var dist: float = (_incident_markers[incident_id] as IncidentMarker).position.distance_to(click_pos)
+		if dist <= click_radius and dist < closest_incident_dist:
+			closest_incident_id = incident_id
+			closest_incident_dist = dist
+
+	# A unit and an incident marker can both fall within the (now zoom-
+	# scaled, sometimes generous) radius when zoomed far out -- resolve by
+	# whichever is actually nearer to the tap, not just "units win".
+	if closest_unit_id != "" and (closest_incident_id == "" or closest_unit_dist <= closest_incident_dist):
+		if _incident_panel:
+			_incident_panel.close()
+		if _unit_panel:
+			_unit_panel.open(closest_unit_id)
+		_select_unit(closest_unit_id)
+		return
+	if closest_incident_id != "":
+		open_incident_panel(closest_incident_id)
+		return
+	# Tapped empty space -- close whichever panel is open.
 	if _incident_panel:
 		_incident_panel.close()
 	if _unit_panel:
