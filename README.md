@@ -11,7 +11,8 @@ a repo, branch, or Supabase project with that app.
 
 ## Status
 
-**Milestones 1-6 built and verified against the real engine (Godot 4.7.1).**
+**Milestones 1-6 plus Phase 8 polish built and verified against the real
+engine (Godot 4.7.1).**
 The full MVP loop from `docs/SPEC.md` is playable end to end, on the real
 6-district Westford town, including local persistence across separate play
 sessions. See [`docs/SPEC.md`](docs/SPEC.md) for the full MVP design and
@@ -78,6 +79,16 @@ the neutral midpoint the probability weighting is centred on,
 systematically damping rates. Worth tuning after real playtesting rather
 than guessing further from one seeded run — a quiet start is arguably
 consistent with spec section 7 anyway.
+
+- **Phase 8 — polish.** A day/night visual cycle (full-screen tint, clear
+  07:00-18:00, fading to a night tint 20:00-05:00, spec section 33 -- the
+  gameplay half, night-time incident weighting, already existed since
+  Milestone 1) and touch-friendly controls (on-screen zoom +/- buttons
+  since scroll-wheel has no touch equivalent, and larger minimum tap
+  targets on every HUD button, spec section 56). Verified against the real
+  engine by forcing the clock to midday/midnight and confirming the tint
+  alpha (0.00 / 0.42) and by driving the zoom buttons' underlying callable
+  and confirming camera zoom actually changes.
 
 Not built: specialist units (traffic/dog/firearms), a separate
 neighbourhood team, audio, and any visual polish beyond flat coloured

@@ -18,9 +18,13 @@ var map_view: MapView
 var hud_view: HudView
 var incident_panel: IncidentPanelView
 var unit_panel: UnitPanelView
+var day_night_overlay: DayNightOverlay
 var camera: Camera2D
 var _briefing_view: BriefingView
 var _debrief_view: DebriefView
+
+const ZOOM_STEP_IN := 1.1
+const ZOOM_STEP_OUT := 0.9
 
 func _ready() -> void:
 	var world: WorldMapData = WestfordMapFactory.build()
@@ -44,6 +48,9 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 
+	day_night_overlay = DayNightOverlay.new()
+	add_child(day_night_overlay)
+
 	incident_panel = IncidentPanelView.new()
 	add_child(incident_panel)
 
@@ -57,6 +64,7 @@ func _ready() -> void:
 	hud_view = HudView.new()
 	add_child(hud_view)
 	hud_view.wire_overlays(map_view)
+	hud_view.wire_zoom_controls(func(): _zoom_by(ZOOM_STEP_IN), func(): _zoom_by(ZOOM_STEP_OUT))
 	hud_view.hide()
 
 	_begin_briefing(next_shift_number)
@@ -64,9 +72,14 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			camera.zoom *= 1.1
+			_zoom_by(ZOOM_STEP_IN)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			camera.zoom *= 0.9
+			_zoom_by(ZOOM_STEP_OUT)
+
+## Shared by scroll-wheel input (desktop) and the HUD's +/- buttons
+## (touch/mobile, which have no scroll-wheel equivalent -- spec section 3/56).
+func _zoom_by(factor: float) -> void:
+	camera.zoom *= factor
 
 func _begin_briefing(shift_number: int) -> void:
 	var roster: Array[Officer] = OfficerFactory.build_shift_roster()

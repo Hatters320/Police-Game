@@ -15,10 +15,18 @@ var _staffing_label: Label
 var _fatigue_label: Label
 var _feed_list: VBoxContainer
 var _overlay_row: HBoxContainer
+var _controls_row: HBoxContainer
 
 var _fatigue_warning_count: int = 0
 
+## Minimum touch target size (spec section 56: "buttons must be large
+## enough for mobile use, avoid tiny controls") -- applied to every HUD
+## button, not just the ones a mouse user would find already-comfortable.
+const TOUCH_BUTTON_SIZE := Vector2(56, 44)
+
 func _ready() -> void:
+	layer = 2 # above DayNightOverlay's tint (layer 1), below side panels (layer 3)
+
 	var top_bar := HBoxContainer.new()
 	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	top_bar.position = Vector2(20, 12)
@@ -31,15 +39,15 @@ func _ready() -> void:
 	_staffing_label = _add_stat_label(top_bar)
 	_fatigue_label = _add_stat_label(top_bar)
 
-	var controls := HBoxContainer.new()
-	controls.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	controls.position = Vector2(-280, 12)
-	controls.add_theme_constant_override("separation", 8)
-	add_child(controls)
-	_add_button(controls, "Pause", func(): Simulation.commands().pause())
-	_add_button(controls, "1x", func(): Simulation.commands().set_speed(1.0))
-	_add_button(controls, "2x", func(): Simulation.commands().set_speed(2.0))
-	_add_button(controls, "4x", func(): Simulation.commands().set_speed(4.0))
+	_controls_row = HBoxContainer.new()
+	_controls_row.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_controls_row.position = Vector2(-380, 12)
+	_controls_row.add_theme_constant_override("separation", 8)
+	add_child(_controls_row)
+	_add_button(_controls_row, "Pause", func(): Simulation.commands().pause())
+	_add_button(_controls_row, "1x", func(): Simulation.commands().set_speed(1.0))
+	_add_button(_controls_row, "2x", func(): Simulation.commands().set_speed(2.0))
+	_add_button(_controls_row, "4x", func(): Simulation.commands().set_speed(4.0))
 
 	_feed_list = VBoxContainer.new()
 	_feed_list.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
@@ -69,8 +77,15 @@ func _add_stat_label(parent: Node) -> Label:
 func _add_button(parent: Node, text: String, on_pressed: Callable) -> void:
 	var button := Button.new()
 	button.text = text
+	button.custom_minimum_size = TOUCH_BUTTON_SIZE
 	button.pressed.connect(on_pressed)
 	parent.add_child(button)
+
+## Scroll-wheel zoom (main.gd) has no touch equivalent -- these give
+## touch/mobile players a way to zoom at all (spec section 3/56).
+func wire_zoom_controls(zoom_in: Callable, zoom_out: Callable) -> void:
+	_add_button(_controls_row, "-", zoom_out)
+	_add_button(_controls_row, "+", zoom_in)
 
 ## Called once by main.gd after MapView exists -- builds the overlay
 ## toggle row (spec section 41). Kept out of _ready() since it needs a
@@ -87,6 +102,7 @@ func _add_overlay_button(text: String, map_view: MapView, overlay: MapView.Overl
 	var button := Button.new()
 	button.text = text
 	button.add_theme_font_size_override("font_size", 12)
+	button.custom_minimum_size = Vector2(0, 40) # spec section 56 -- still a real tap target, just not as wide as the main controls
 	button.pressed.connect(func(): map_view.set_overlay(overlay))
 	_overlay_row.add_child(button)
 
