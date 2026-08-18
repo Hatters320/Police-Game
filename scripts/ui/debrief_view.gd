@@ -61,7 +61,7 @@ func setup(summary: Dictionary) -> void:
 
 	var next_button := Button.new()
 	next_button.text = "START NEXT SHIFT"
-	next_button.custom_minimum_size = Vector2(260, 48)
+	next_button.custom_minimum_size = Vector2(300, 58)
 	next_button.pressed.connect(func(): start_next_shift.emit())
 	content.add_child(next_button)
 
@@ -83,7 +83,7 @@ func _add_performance_ratings(parent: Node, scores: Dictionary) -> void:
 		var s: Dictionary = scores[key]
 		var chip := Label.new()
 		chip.text = "%s: %s" % [label_text, DebriefScorer.band_text(s["band"])]
-		chip.add_theme_font_size_override("font_size", 14)
+		chip.add_theme_font_size_override("font_size", 18)
 		chip.modulate = _band_color(s["band"])
 		row.add_child(chip)
 
@@ -120,13 +120,13 @@ func _add_district_snapshot(parent: Node) -> void:
 func _add_title(parent: Node, text: String) -> void:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 28)
+	label.add_theme_font_size_override("font_size", 34)
 	parent.add_child(label)
 
 func _add_section_header(parent: Node, text: String) -> void:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_font_size_override("font_size", 22)
 	label.modulate = Color(0.75, 0.8, 1.0)
 	parent.add_child(label)
 

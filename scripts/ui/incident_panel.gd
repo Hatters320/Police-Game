@@ -105,6 +105,7 @@ func _add_facts_block(incident: Incident) -> void:
 		add_dim_line("%d piece(s) of information not yet known" % incident.unknown_facts.size())
 		var request_button := Button.new()
 		request_button.text = "Request Information"
+		request_button.custom_minimum_size = Vector2(0, 52)
 		request_button.pressed.connect(_on_request_information)
 		content.add_child(request_button)
 
@@ -121,6 +122,7 @@ func _add_intent_block(incident: Incident) -> void:
 		var button := Button.new()
 		button.text = pair[1]
 		button.toggle_mode = true
+		button.custom_minimum_size = Vector2(0, 50)
 		button.button_pressed = incident.command_intent == pair[0]
 		button.pressed.connect(_on_intent_pressed.bind(pair[0]))
 		row.add_child(button)
@@ -154,10 +156,11 @@ func _add_assigned_units_block(incident: Incident) -> void:
 		content.add_child(row)
 		var label := Label.new()
 		label.text = "%s%s -- %s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit)]
-		label.custom_minimum_size = Vector2(220, 0)
+		label.custom_minimum_size = Vector2(260, 0)
 		row.add_child(label)
 		var recall_button := Button.new()
 		recall_button.text = "Recall"
+		recall_button.custom_minimum_size = Vector2(0, 48)
 		recall_button.pressed.connect(_on_stand_down.bind(unit_id))
 		row.add_child(recall_button)
 
@@ -216,10 +219,11 @@ func _add_available_units_block(incident: Incident) -> void:
 		content.add_child(row)
 		var label := Label.new()
 		label.text = "%s%s -- %s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit)]
-		label.custom_minimum_size = Vector2(220, 0)
+		label.custom_minimum_size = Vector2(260, 0)
 		row.add_child(label)
 		var send_button := Button.new()
 		send_button.text = "Send" if unit.current_incident_id == "" else "Reassign here"
+		send_button.custom_minimum_size = Vector2(0, 48)
 		send_button.pressed.connect(_on_send_unit.bind(unit.id))
 		row.add_child(send_button)
 	if not any_shown:
@@ -277,7 +281,7 @@ func _add_specialist_block(incident: Incident) -> void:
 		content.add_child(row)
 		var label := Label.new()
 		label.text = "%s -- %s" % [unit.display_name, manager.status_text(unit)]
-		label.custom_minimum_size = Vector2(220, 0)
+		label.custom_minimum_size = Vector2(260, 0)
 		row.add_child(label)
 		if unit.status == GameEnums.SpecialistStatus.COMMITTED and unit.committed_incident_id == incident.id:
 			add_dim_line("(already requested for this incident)")
@@ -286,6 +290,7 @@ func _add_specialist_block(incident: Incident) -> void:
 		if can_request:
 			var request_button := Button.new()
 			request_button.text = "Request"
+			request_button.custom_minimum_size = Vector2(0, 48)
 			request_button.pressed.connect(_on_request_specialist.bind(pair[0]))
 			row.add_child(request_button)
 
@@ -312,10 +317,11 @@ func _add_neighbourhood_block(incident: Incident) -> void:
 		content.add_child(row)
 		var label := Label.new()
 		label.text = officer.officer_name
-		label.custom_minimum_size = Vector2(220, 0)
+		label.custom_minimum_size = Vector2(260, 0)
 		row.add_child(label)
 		var task_button := Button.new()
 		task_button.text = "Gather Intel"
+		task_button.custom_minimum_size = Vector2(0, 48)
 		task_button.pressed.connect(_on_task_neighbourhood.bind(officer.id))
 		row.add_child(task_button)
 	if not any_available:

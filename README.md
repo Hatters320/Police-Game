@@ -24,6 +24,17 @@ device" prompt rather than a broken, overflowing layout -- the Web
 export can't lock device orientation the way a native build can, and
 this game's UI is built for landscape (spec section 3/56).
 
+Tuned against real playtesting on an actual phone: the default camera
+view starts zoomed in on the player's own station rather than the whole
+six-district town, HUD/panel text and buttons are sized to stay legible
+and tappable on a small screen, and the map supports drag-to-pan (mouse
+or one-finger touch) and pinch-to-zoom (two-finger touch, plus the
+existing scroll-wheel/on-screen +/- buttons) so the whole town is
+reachable from any starting position -- verified against the real engine
+by injecting drag and pinch input events and confirming the camera's
+position and zoom change correctly, and that a plain tap still opens an
+incident/unit panel instead of being swallowed as a drag.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a

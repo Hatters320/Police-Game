@@ -20,7 +20,7 @@ func setup(incident: Incident, world_position: Vector2) -> void:
 
 	_label = Label.new()
 	_label.position = Vector2(14, 6)
-	_label.add_theme_font_size_override("font_size", 11)
+	_label.add_theme_font_size_override("font_size", 14)
 	_label.modulate = Color(0.95, 0.95, 0.85)
 	add_child(_label)
 

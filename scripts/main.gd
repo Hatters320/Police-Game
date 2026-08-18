@@ -33,8 +33,36 @@ var _debrief_view: DebriefView
 ## should take a handful of taps, not fifteen-plus.
 const ZOOM_STEP_IN := 1.25
 const ZOOM_STEP_OUT := 0.8
+const MIN_ZOOM := 0.02
+const MAX_ZOOM := 2.5
+
+## A press/touch that moves less than this many screen pixels before
+## release is a tap (dispatch to MapView.handle_tap); anything past it is
+## a drag/pan instead. Without this, click-to-select and drag-to-pan can't
+## coexist on the same pointer down/up sequence.
+const TAP_DRAG_THRESHOLD := 14.0
+
+var _pointer_down: bool = false
+var _pointer_start_screen: Vector2 = Vector2.ZERO
+var _pointer_dragged: bool = false
+var _touch_points: Dictionary = {} # touch index -> Vector2 screen position
+var _pinch_start_distance: float = 0.0
+var _pinch_start_zoom: float = 0.0
+
+## Raises every Control's default text size (Godot's built-in default is
+## 16) before any UI exists -- real phone playtesting found the whole
+## game illegibly small even after fixing the map's default zoom, since
+## most labels/buttons never set an explicit font size and just inherited
+## the engine default. Assigning this to the root Window cascades to every
+## Control created afterwards, in every view built across this whole
+## session, without editing each one's theme individually.
+const DEFAULT_FONT_SIZE := 22
 
 func _ready() -> void:
+	var theme := Theme.new()
+	theme.default_font_size = DEFAULT_FONT_SIZE
+	get_tree().root.theme = theme
+
 	rotate_prompt = RotatePromptOverlay.new()
 	add_child(rotate_prompt)
 
@@ -94,17 +122,91 @@ func _ready() -> void:
 
 	_begin_briefing(next_shift_number)
 
+## Owns all map camera gestures: scroll-wheel zoom and click-to-select on
+## desktop, drag-to-pan and pinch-to-zoom on touch. This lives here (not in
+## MapView, which used to handle its own clicks) because telling a tap from
+## the start of a drag needs to watch the whole press-move-release
+## sequence, and a single owner has to arbitrate between "this press became
+## a pan" and "this press was a marker tap" -- splitting that across two
+## nodes listening independently would double-handle every input.
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed:
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_zoom_by(ZOOM_STEP_IN)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_zoom_by(ZOOM_STEP_OUT)
+	if event is InputEventMouseButton:
+		_handle_mouse_button(event)
+	elif event is InputEventMouseMotion and _pointer_down:
+		_handle_drag_delta(event.relative, event.position)
+	elif event is InputEventScreenTouch:
+		_handle_screen_touch(event)
+	elif event is InputEventScreenDrag:
+		_handle_screen_drag(event)
+
+func _handle_mouse_button(event: InputEventMouseButton) -> void:
+	if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
+		_zoom_by(ZOOM_STEP_IN)
+		return
+	if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+		_zoom_by(ZOOM_STEP_OUT)
+		return
+	if event.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if event.pressed:
+		_pointer_down = true
+		_pointer_start_screen = event.position
+		_pointer_dragged = false
+	else:
+		_pointer_down = false
+		if not _pointer_dragged:
+			map_view.handle_tap(get_global_mouse_position())
+
+func _handle_drag_delta(relative: Vector2, current_screen: Vector2) -> void:
+	if current_screen.distance_to(_pointer_start_screen) > TAP_DRAG_THRESHOLD:
+		_pointer_dragged = true
+	if _pointer_dragged:
+		camera.position -= relative / camera.zoom
+
+func _handle_screen_touch(event: InputEventScreenTouch) -> void:
+	if event.pressed:
+		_touch_points[event.index] = event.position
+		if _touch_points.size() == 1:
+			_pointer_down = true
+			_pointer_start_screen = event.position
+			_pointer_dragged = false
+		elif _touch_points.size() == 2:
+			_pinch_start_distance = _current_pinch_distance()
+			_pinch_start_zoom = camera.zoom.x
+		return
+	var was_single_tap: bool = _touch_points.size() == 1 and not _pointer_dragged
+	_touch_points.erase(event.index)
+	if _touch_points.is_empty():
+		_pointer_down = false
+		_pinch_start_distance = 0.0
+	if was_single_tap:
+		map_view.handle_tap(get_global_mouse_position())
+
+func _handle_screen_drag(event: InputEventScreenDrag) -> void:
+	_touch_points[event.index] = event.position
+	if _touch_points.size() >= 2:
+		_handle_pinch()
+	elif _touch_points.size() == 1:
+		_handle_drag_delta(event.relative, event.position)
+
+func _current_pinch_distance() -> float:
+	var points: Array = _touch_points.values()
+	if points.size() < 2:
+		return 0.0
+	return points[0].distance_to(points[1])
+
+func _handle_pinch() -> void:
+	var distance: float = _current_pinch_distance()
+	if _pinch_start_distance <= 0.0 or distance <= 0.0:
+		return
+	_pointer_dragged = true # two-finger contact is never a tap
+	var new_zoom: float = clampf(_pinch_start_zoom * (distance / _pinch_start_distance), MIN_ZOOM, MAX_ZOOM)
+	camera.zoom = Vector2(new_zoom, new_zoom)
 
 ## Shared by scroll-wheel input (desktop) and the HUD's +/- buttons
 ## (touch/mobile, which have no scroll-wheel equivalent -- spec section 3/56).
 func _zoom_by(factor: float) -> void:
-	camera.zoom *= factor
+	camera.zoom = (camera.zoom * factor).clamp(Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
 
 func _begin_briefing(shift_number: int) -> void:
 	var roster: Array[Officer] = OfficerFactory.build_shift_roster()

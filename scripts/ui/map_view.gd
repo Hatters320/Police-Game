@@ -206,7 +206,7 @@ func _add_location_marker(location: LocationDefinition) -> void:
 	var label := Label.new()
 	label.text = location.display_name
 	label.position = Vector2(14, -8)
-	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_font_size_override("font_size", 15)
 	label.modulate = Color(0.85, 0.85, 0.85)
 	marker.add_child(label)
 
@@ -505,9 +505,13 @@ func _heat_color(value: float) -> Color:
 	color.a = 0.35
 	return color
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		_handle_click(get_global_mouse_position())
+## Called by main.gd once its gesture recognizer has determined a press
+## was a genuine tap and not the start of a drag/pan -- MapView no longer
+## listens for input directly, since telling a tap from the start of a
+## pan gesture needs to see the whole gesture, not just the initial press
+## (see main.gd's header comment on why that lives there now).
+func handle_tap(world_pos: Vector2) -> void:
+	_handle_click(world_pos)
 
 func _handle_click(click_pos: Vector2) -> void:
 	for unit_id in _unit_markers.keys():

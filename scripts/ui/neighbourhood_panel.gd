@@ -27,7 +27,7 @@ func _add_officer_block(officer: NeighbourhoodOfficer, manager: NeighbourhoodMan
 	add_divider()
 	var name_label := Label.new()
 	name_label.text = officer.officer_name
-	name_label.add_theme_font_size_override("font_size", 14)
+	name_label.add_theme_font_size_override("font_size", 18)
 	content.add_child(name_label)
 	add_dim_line(manager.status_text(officer))
 
@@ -50,11 +50,12 @@ func _add_engagement_controls(officer: NeighbourhoodOfficer) -> void:
 	for district: DistrictDefinition in Simulation.core.world.districts:
 		picker.add_item(district.display_name)
 		picker.set_item_metadata(picker.item_count - 1, district.id)
-	picker.custom_minimum_size = Vector2(180, 0)
+	picker.custom_minimum_size = Vector2(220, 48)
 	row.add_child(picker)
 
 	var task_button := Button.new()
 	task_button.text = "Task"
+	task_button.custom_minimum_size = Vector2(0, 48)
 	task_button.pressed.connect(_on_task_engagement.bind(officer.id, picker))
 	row.add_child(task_button)
 

@@ -15,11 +15,11 @@ func _ready() -> void:
 
 	var panel := PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	panel.position = Vector2(-380, 140) # below all 3 of HudView's stacked rows
+	panel.position = Vector2(-440, 150) # below all 3 of HudView's stacked rows
 	add_child(panel)
 
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(360, 440)
+	scroll.custom_minimum_size = Vector2(420, 420)
 	panel.add_child(scroll)
 
 	content = VBoxContainer.new()
@@ -43,12 +43,13 @@ func clear_content() -> void:
 func add_title(text: String) -> void:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_font_size_override("font_size", 26)
 	content.add_child(label)
 
 func add_close_button() -> void:
 	var button := Button.new()
 	button.text = "Close"
+	button.custom_minimum_size = Vector2(0, 52)
 	button.pressed.connect(close)
 	content.add_child(button)
 
@@ -58,7 +59,7 @@ func add_divider() -> void:
 func add_mini_header(text: String) -> void:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_font_size_override("font_size", 17)
 	label.modulate = Color(0.75, 0.8, 1.0)
 	content.add_child(label)
 

@@ -46,7 +46,7 @@ func refresh() -> void:
 func _add_officer_block(officer: Officer) -> void:
 	var name_label := Label.new()
 	name_label.text = "%s -- %s" % [officer.officer_name, _rank_text(officer.rank)]
-	name_label.add_theme_font_size_override("font_size", 14)
+	name_label.add_theme_font_size_override("font_size", 18)
 	content.add_child(name_label)
 	add_dim_line("Experience: %s   Driver: %s" % [_experience_text(officer.experience), "Yes" if officer.driver_qualified else "No"])
 
@@ -65,16 +65,19 @@ func _add_actions(unit: PoliceUnit) -> void:
 		GameEnums.UnitStatus.ON_BREAK:
 			var return_button := Button.new()
 			return_button.text = "Return From Break"
+			return_button.custom_minimum_size = Vector2(0, 52)
 			return_button.pressed.connect(_on_return_from_break)
 			content.add_child(return_button)
 		GameEnums.UnitStatus.AVAILABLE, GameEnums.UnitStatus.PATROL:
 			var break_button := Button.new()
 			break_button.text = "Send For Break"
+			break_button.custom_minimum_size = Vector2(0, 52)
 			break_button.pressed.connect(_on_send_for_break)
 			content.add_child(break_button)
 			if unit.status == GameEnums.UnitStatus.PATROL:
 				var recall_button := Button.new()
 				recall_button.text = "Recall to Station"
+				recall_button.custom_minimum_size = Vector2(0, 52)
 				recall_button.pressed.connect(_on_recall)
 				content.add_child(recall_button)
 		_:

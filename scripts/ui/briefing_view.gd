@@ -53,7 +53,7 @@ func setup(world: WorldMapData, shift_number: int) -> void:
 
 	var confirm_button := Button.new()
 	confirm_button.text = "CONFIRM SHIFT PLAN"
-	confirm_button.custom_minimum_size = Vector2(260, 48)
+	confirm_button.custom_minimum_size = Vector2(300, 58)
 	confirm_button.pressed.connect(_on_confirm_pressed)
 	content.add_child(confirm_button)
 
@@ -64,13 +64,13 @@ func setup(world: WorldMapData, shift_number: int) -> void:
 func _add_title(parent: Node, text: String) -> void:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 28)
+	label.add_theme_font_size_override("font_size", 34)
 	parent.add_child(label)
 
 func _add_section_header(parent: Node, text: String) -> void:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_font_size_override("font_size", 22)
 	label.modulate = Color(0.75, 0.8, 1.0)
 	parent.add_child(label)
 
@@ -152,6 +152,7 @@ func _add_priorities_section(parent: Node) -> void:
 		var button := Button.new()
 		button.text = option
 		button.toggle_mode = true
+		button.custom_minimum_size = Vector2(0, 52)
 		button.toggled.connect(_on_priority_toggled.bind(option))
 		row.add_child(button)
 		_priority_buttons[option] = button
@@ -185,7 +186,7 @@ func _add_patrol_section(parent: Node) -> void:
 				crew_names.append(officer.officer_name)
 		var label := Label.new()
 		label.text = "%s (%s)" % [unit.callsign, _join_names(crew_names)]
-		label.custom_minimum_size = Vector2(280, 0)
+		label.custom_minimum_size = Vector2(320, 0)
 		row.add_child(label)
 
 		var picker := OptionButton.new()
@@ -195,7 +196,7 @@ func _add_patrol_section(parent: Node) -> void:
 			picker.add_item(location.display_name, index)
 			picker.set_item_metadata(index, location.id)
 			index += 1
-		picker.custom_minimum_size = Vector2(260, 0)
+		picker.custom_minimum_size = Vector2(300, 52)
 		row.add_child(picker)
 		_patrol_pickers[unit.id] = picker
 
@@ -219,7 +220,7 @@ func _add_reserve_section(parent: Node) -> void:
 	_reserve_spinbox.min_value = 0
 	_reserve_spinbox.max_value = Simulation.core.resource_manager.units.size()
 	_reserve_spinbox.value = 2
-	_reserve_spinbox.custom_minimum_size = Vector2(120, 0)
+	_reserve_spinbox.custom_minimum_size = Vector2(140, 48)
 	parent.add_child(_reserve_spinbox)
 
 func _on_confirm_pressed() -> void:
