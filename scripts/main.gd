@@ -22,6 +22,7 @@ var neighbourhood_panel: NeighbourhoodPanelView
 var day_night_overlay: DayNightOverlay
 var weather_overlay: WeatherOverlay
 var audio_manager: AudioManager
+var rotate_prompt: RotatePromptOverlay
 var camera: Camera2D
 var _briefing_view: BriefingView
 var _debrief_view: DebriefView
@@ -30,6 +31,9 @@ const ZOOM_STEP_IN := 1.1
 const ZOOM_STEP_OUT := 0.9
 
 func _ready() -> void:
+	rotate_prompt = RotatePromptOverlay.new()
+	add_child(rotate_prompt)
+
 	var world: WorldMapData = WestfordMapFactory.build()
 	var incident_types: Array[IncidentTypeDefinition] = IncidentTypeFactory.build_all()
 	var events: Array[EventDefinition] = EventFactory.build_all()
