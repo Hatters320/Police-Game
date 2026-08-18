@@ -1,12 +1,12 @@
 # Running this project
 
-**Both paths below have been run against the real engine (Godot 4.7.1)
+**All paths below have been run against the real engine (Godot 4.7.1)
 and confirmed working** — a full 12h shift completes cleanly headless,
-and the visual scene renders and handles dispatch correctly under
-software rendering. Run them yourself with the steps below; nothing here
-is guesswork anymore, though there's plenty still to build (Milestone 3+)
-and one open tuning question noted in the main README (natural incident
-rate came out lower than expected on the one seed tested).
+the visual scene renders and handles dispatch correctly under software
+rendering, and the Web export runs correctly in a real browser (see
+below). Run them yourself with the steps below. See the main README's
+"Status" section for what's built (everything in `docs/SPEC.md` at this
+point) and what's genuinely still open.
 
 ## The visual scene (Milestone 2) — the normal way to look at this
 
@@ -17,11 +17,13 @@ directly: roads, locations, district outlines, moving police units,
 colour-coded incident markers, a top HUD, pause/1x/2x/4x, and an event
 feed.
 
-**Controls**: scroll wheel to zoom. Click an available (blue) unit to
-select it, then click an incident marker to dispatch it — that's the only
-way incidents get handled right now (no auto-dispatch), so watching one
-queue up and escalate because nothing was sent is expected behaviour, not
-a bug.
+**Controls**: scroll wheel (or the on-screen -/+ buttons) to zoom. Click
+an incident marker to open its panel — REQUEST INFORMATION, set command
+intent, SEND a unit, request a specialist, or task a neighbourhood
+officer. Click a unit marker for its welfare panel (fatigue/morale, send
+for break). There is no auto-dispatch — the Inspector's decisions are the
+whole point (spec section 49) — so an incident queuing up and escalating
+because nothing was sent yet is expected behaviour, not a bug.
 
 **What to check**: does it open without an error dialog; do you see the
 map and moving units; does clicking a unit then an incident marker
@@ -58,6 +60,77 @@ escalations, most resolved by shift end, maybe a few still open (correct
 carry into the next shift rather than vanishing). Fatigue warnings should
 appear for at least a few officers by the end, since this harness never
 calls `send_for_break`.
+
+## Web export (playing in a browser)
+
+The main README's "Play it in a browser" section has the live link and
+the one-time GitHub Pages toggle. To rebuild the site yourself:
+
+1. **Export templates**: download `Godot_v4.7.1-stable_export_templates.tpz`
+   (matching whatever Godot version you're building with) and unzip
+   `web_release.zip`/`web_debug.zip`/`web_nothreads_release.zip`/
+   `web_nothreads_debug.zip` plus `version.txt` into
+   `~/.local/share/godot/export_templates/4.7.1.stable/`.
+2. **Export preset**: `export_presets.cfg` isn't committed (gitignored,
+   matching Godot's default project template), so create one at the repo
+   root with this content -- `variant/thread_support=false` matters: it
+   uses the no-threads template variant, which needs no COOP/COEP server
+   headers, so it works on plain static hosting like GitHub Pages:
+
+   ```ini
+   [preset.0]
+
+   name="Web"
+   platform="Web"
+   runnable=true
+   advanced_options=false
+   dedicated_server=false
+   custom_features=""
+   export_filter="all_resources"
+   include_filter=""
+   exclude_filter=""
+   export_path="build/web/index.html"
+   encryption_include_filters=""
+   encryption_exclude_filters=""
+   encrypt_pck=false
+   encrypt_directory=false
+   script_export_mode=2
+
+   [preset.0.options]
+
+   custom_template/debug=""
+   custom_template/release=""
+   variant/extensions_support=false
+   variant/thread_support=false
+   vram_texture_compression/for_desktop=true
+   vram_texture_compression/for_mobile=false
+   html/export_icon=true
+   html/custom_html_shell=""
+   html/head_include=""
+   html/canvas_resize_policy=2
+   html/focus_canvas_on_start=true
+   html/experimental_virtual_keyboard=false
+   progressive_web_app/enabled=false
+   progressive_web_app/offline_page=""
+   progressive_web_app/display=1
+   progressive_web_app/orientation=0
+   progressive_web_app/icon_144x144=""
+   progressive_web_app/icon_180x180=""
+   progressive_web_app/icon_512x512=""
+   progressive_web_app/background_color=Color(0, 0, 0, 1)
+   ```
+
+3. **Build**: `godot4 --headless --export-release "Web" build/web/index.html`
+4. **Publish**: replace the contents of the `gh-pages` branch with the new
+   `build/web/` output (plus an empty `.nojekyll` file so GitHub Pages
+   doesn't run the build through Jekyll) and push. GitHub Pages picks up
+   the change automatically within about a minute.
+
+Verified against the real engine: exported, served locally, and driven
+with a real headless Chromium browser (Playwright) -- boots with zero
+console errors, the briefing screen renders and scrolls, CONFIRM SHIFT
+PLAN works, and the live map/HUD/simulation clock runs correctly
+(watched the clock advance in real time after confirming).
 
 ## If either one doesn't run
 

@@ -9,6 +9,32 @@ This is a separate project from `predictor` (the KYG/Pundit sports app) —
 different codebase, different engine, different backend. Nothing here shares
 a repo, branch, or Supabase project with that app.
 
+## Play it in a browser
+
+**https://hatters320.github.io/police-game/** (live once GitHub Pages is
+switched on for this repo -- see below, it isn't automatic).
+
+The `gh-pages` branch holds a built Web export of the game (Godot's
+Compatibility renderer, no-threads variant so it needs no special server
+headers) -- verified working end-to-end in a real headless Chromium
+browser: boots with no console errors, the full briefing screen renders
+and scrolls, CONFIRM SHIFT PLAN works, and the live map/HUD/simulation
+clock runs correctly.
+
+**One-time setup to make the link live** (repo owner only, ~30 seconds):
+1. Go to the repo's **Settings -> Pages**.
+2. Under "Build and deployment" -> "Source", choose **Deploy from a
+   branch**.
+3. Under "Branch", choose **gh-pages** and folder **/ (root)**, then
+   **Save**.
+4. Wait about a minute for the first deploy; the link above then works.
+
+To rebuild and republish the site after making changes: export a Web
+build (`godot4 --headless --export-release "Web" build/web/index.html`,
+using the `export_presets.cfg` described in `tests/README.md` since that
+file isn't committed), then replace the contents of the `gh-pages`
+branch with the new `build/web/` output and push.
+
 ## Status
 
 **The full spec -- Milestones 1-6, Phase 8 polish, and every previously
