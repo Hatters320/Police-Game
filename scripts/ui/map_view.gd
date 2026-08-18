@@ -30,12 +30,52 @@ enum OverlayType { NONE, ASB, VIOLENCE, BURGLARY, VISIBILITY, DEMAND }
 const DEFAULT_DISTRICT_COLOR := Color(0.5, 0.6, 0.8, 0.08)
 const OVERLAY_NOISE_REFRESH_TICKS := 15 # simulated minutes between fuzz re-rolls
 
+## Loose SimCity-style land-use tint per district (spec's target art
+## direction, section 2/61) -- still flat colour fills, no textures, but
+## gives each zone a distinct identity at a glance instead of one uniform
+## tint everywhere. Falls back to DEFAULT_DISTRICT_COLOR for any id not
+## listed here (e.g. a future map with different districts).
+const DISTRICT_BASE_COLORS := {
+	"town_centre": Color(0.62, 0.56, 0.42, 0.16),        # urban/commercial -- warm tan
+	"northside": Color(0.42, 0.5, 0.36, 0.14),            # residential -- soft green-brown
+	"east_estate": Color(0.42, 0.5, 0.36, 0.14),          # residential -- soft green-brown
+	"south_residential": Color(0.42, 0.5, 0.36, 0.14),    # residential -- soft green-brown
+	"west_industrial": Color(0.45, 0.5, 0.56, 0.16),      # industrial -- cool blue-grey
+	"rural_outskirts": Color(0.36, 0.5, 0.3, 0.16),       # farmland -- richer green
+}
+
+## Ground-base tint per district, matching the palette above but used for
+## building colour selection (BUILDING_PALETTE) rather than the polygon
+## fill itself.
+enum LandUse { URBAN, RESIDENTIAL, INDUSTRIAL, RURAL }
+const DISTRICT_LAND_USE := {
+	"town_centre": LandUse.URBAN,
+	"northside": LandUse.RESIDENTIAL,
+	"east_estate": LandUse.RESIDENTIAL,
+	"south_residential": LandUse.RESIDENTIAL,
+	"west_industrial": LandUse.INDUSTRIAL,
+	"rural_outskirts": LandUse.RURAL,
+}
+const BUILDING_PALETTE := {
+	LandUse.URBAN: [Color(0.55, 0.42, 0.34), Color(0.5, 0.46, 0.4), Color(0.58, 0.5, 0.3)],
+	LandUse.RESIDENTIAL: [Color(0.58, 0.38, 0.3), Color(0.5, 0.42, 0.32), Color(0.55, 0.46, 0.36)],
+	LandUse.INDUSTRIAL: [Color(0.42, 0.44, 0.48), Color(0.36, 0.4, 0.44), Color(0.46, 0.46, 0.42)],
+	LandUse.RURAL: [Color(0.42, 0.36, 0.26), Color(0.48, 0.42, 0.3)],
+}
+
+## Backdrop ground colour behind the whole map -- grass/earth rather than
+## void black, so the town reads as sitting on a landscape (spec's
+## SimCity-style target, section 2).
+const GROUND_COLOR := Color(0.16, 0.19, 0.15)
+const GROUND_MARGIN := 600.0
+
 var _world: WorldMapData
 var _incident_panel: IncidentPanelView
 var _unit_panel: UnitPanelView
 var _unit_markers: Dictionary = {} # unit_id -> UnitMarker
 var _incident_markers: Dictionary = {} # incident_id -> IncidentMarker
 var _district_polygons: Dictionary = {} # district_id -> Polygon2D
+var _district_base_colors: Dictionary = {} # district_id -> Color, this district's NONE-overlay fill
 var _selected_unit_id: String = ""
 var _current_overlay: OverlayType = OverlayType.NONE
 var _overlay_noise: Dictionary = {} # district_id -> float
@@ -70,14 +110,29 @@ static func make_circle(radius: float, color: Color, segments: int = 16) -> Poly
 	return poly
 
 func _draw_static_map() -> void:
+	_draw_ground_backdrop()
+
 	for district: DistrictDefinition in _world.districts:
 		if district.boundary.size() < 3:
 			continue
+		var base_color: Color = DISTRICT_BASE_COLORS.get(district.id, DEFAULT_DISTRICT_COLOR)
+		_district_base_colors[district.id] = base_color
 		var poly := Polygon2D.new()
 		poly.polygon = district.boundary
-		poly.color = DEFAULT_DISTRICT_COLOR
+		poly.color = base_color
 		add_child(poly)
 		_district_polygons[district.id] = poly
+
+		# Zone edge outline so districts read as distinct areas rather than
+		# soft unbounded tints (SimCity-style zone borders, spec section 2).
+		var outline := Line2D.new()
+		var loop: PackedVector2Array = district.boundary.duplicate()
+		loop.append(district.boundary[0])
+		outline.points = loop
+		outline.width = 3.0
+		outline.default_color = Color(base_color.r, base_color.g, base_color.b, 0.5)
+		add_child(outline)
+
 		var label := Label.new()
 		label.text = district.display_name
 		label.position = _polygon_centroid(district.boundary) - Vector2(40, 8)
@@ -91,11 +146,20 @@ func _draw_static_map() -> void:
 		var to_node: RoadNode = _find_road_node(edge.to_id)
 		if from_node == null or to_node == null:
 			continue
-		var line := Line2D.new()
-		line.points = PackedVector2Array([from_node.position, to_node.position])
-		line.width = 24.0
-		line.default_color = Color(0.55, 0.55, 0.58)
-		add_child(line)
+		var points := PackedVector2Array([from_node.position, to_node.position])
+		# Dark road base plus a thin lighter centreline, rather than one flat
+		# grey stroke -- cheap two-line trick that reads as a paved road
+		# instead of a schematic connector.
+		var base_line := Line2D.new()
+		base_line.points = points
+		base_line.width = 24.0
+		base_line.default_color = Color(0.22, 0.22, 0.24)
+		add_child(base_line)
+		var center_line := Line2D.new()
+		center_line.points = points
+		center_line.width = 3.0
+		center_line.default_color = Color(0.5, 0.48, 0.4, 0.6)
+		add_child(center_line)
 
 	for location: LocationDefinition in _world.locations:
 		var marker := Node2D.new()
@@ -111,6 +175,29 @@ func _draw_static_map() -> void:
 		label.add_theme_font_size_override("font_size", 12)
 		label.modulate = Color(0.85, 0.85, 0.85)
 		marker.add_child(label)
+
+## A single large rect behind everything so the town sits on a ground
+## colour instead of the viewport's void black -- computed from the actual
+## district boundaries so it always covers the map regardless of which
+## WorldMapData (small test map or full Westford) is loaded.
+func _draw_ground_backdrop() -> void:
+	var min_pos := Vector2.INF
+	var max_pos := -Vector2.INF
+	for district: DistrictDefinition in _world.districts:
+		for p in district.boundary:
+			min_pos = Vector2(minf(min_pos.x, p.x), minf(min_pos.y, p.y))
+			max_pos = Vector2(maxf(max_pos.x, p.x), maxf(max_pos.y, p.y))
+	if min_pos == Vector2.INF:
+		return
+	min_pos -= Vector2(GROUND_MARGIN, GROUND_MARGIN)
+	max_pos += Vector2(GROUND_MARGIN, GROUND_MARGIN)
+	var backdrop := Polygon2D.new()
+	backdrop.polygon = PackedVector2Array([
+		Vector2(min_pos.x, min_pos.y), Vector2(max_pos.x, min_pos.y),
+		Vector2(max_pos.x, max_pos.y), Vector2(min_pos.x, max_pos.y),
+	])
+	backdrop.color = GROUND_COLOR
+	add_child(backdrop)
 
 ## Purely decorative building footprints (spec section 53 wants 500-800 of
 ## these) -- generated here at draw time from each district's boundary,
@@ -134,6 +221,8 @@ func _draw_building_footprints() -> void:
 		var center: Vector2 = _polygon_centroid(district.boundary)
 		var radius: float = center.distance_to(district.boundary[0])
 		var count: int = BUILDING_COUNT_BY_DISTRICT.get(district.id, DEFAULT_BUILDING_COUNT)
+		var land_use: LandUse = DISTRICT_LAND_USE.get(district.id, LandUse.RESIDENTIAL)
+		var palette: Array = BUILDING_PALETTE[land_use]
 		for i in range(count):
 			var angle: float = rng.randf_range(0.0, TAU)
 			# sqrt of a uniform [0,1] sample gives a uniform-by-area
@@ -144,10 +233,20 @@ func _draw_building_footprints() -> void:
 				continue # leave the district's hub area visually clear
 			var pos: Vector2 = center + Vector2(cos(angle), sin(angle)) * dist
 			var size := Vector2(rng.randf_range(18.0, 42.0), rng.randf_range(18.0, 42.0))
-			var shade: float = rng.randf_range(0.32, 0.5)
-			var building := _make_rect(size, Color(shade, shade * 0.96, shade * 0.9, 0.8))
+			var base_color: Color = palette[rng.randi() % palette.size()]
+			var shade_jitter: float = rng.randf_range(0.85, 1.15)
+			var wall_color := Color(base_color.r * shade_jitter, base_color.g * shade_jitter, base_color.b * shade_jitter, 0.85)
+			var building := _make_rect(size, wall_color)
 			building.position = pos
 			add_child(building)
+			# A smaller, darker rect offset toward one corner reads as a
+			# pitched-roof shadow -- a cheap pseudo-3D cue matching the
+			# angled/isometric presentation target (README's Engine section)
+			# without needing actual art.
+			var roof_size: Vector2 = size * 0.55
+			var roof := _make_rect(roof_size, Color(wall_color.r * 0.55, wall_color.g * 0.55, wall_color.b * 0.55, 0.9))
+			roof.position = pos - size * 0.12
+			add_child(roof)
 
 func _make_rect(size: Vector2, color: Color) -> Polygon2D:
 	var poly := Polygon2D.new()
@@ -250,7 +349,7 @@ func _apply_overlay() -> void:
 	for district_id in _district_polygons.keys():
 		var poly: Polygon2D = _district_polygons[district_id]
 		if _current_overlay == OverlayType.NONE:
-			poly.color = DEFAULT_DISTRICT_COLOR
+			poly.color = _district_base_colors.get(district_id, DEFAULT_DISTRICT_COLOR)
 			continue
 		var district: DistrictState = Simulation.core.district_manager.get_state(district_id)
 		if district == null:

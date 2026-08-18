@@ -128,9 +128,24 @@ every officer is forced UNAVAILABLE once the clock passes 21:00.
   the real engine: every trigger signal fires `AudioStreamPlayer.play()`
   without error.
 
-Not built: any visual polish beyond flat coloured shapes (spec's
-"SimCity-style" target art direction is still a placeholder -- see spec
-section 2's explicit MVP exclusions and section 61's Phase 8).
+- **Visual polish pass toward the SimCity-style target.** Still no art
+  assets -- everything below is code-drawn primitives, but arranged to
+  read as a landscape rather than schematic shapes on void black: a
+  ground backdrop sized to the map's real bounding box; each district
+  tinted by land use (warm tan town centre, green-brown residential,
+  cool blue-grey industrial, richer green farmland) with a thin zone
+  outline instead of one flat uniform tint; roads drawn as a dark base
+  stroke plus a lighter centreline instead of one flat grey band; and
+  every decorative building given a land-use-matched wall colour plus a
+  smaller offset darker rect that reads as a pitched-roof shadow -- a
+  cheap pseudo-3D cue toward the isometric/angled presentation target.
+  Map overlays (spec section 41) still work on top of the new per-district
+  base colours. Verified against the real engine at both the full-town
+  zoom and a close-up, and with an overlay active.
+
+Not built: real art assets -- the above is still flat-colour primitives,
+just arranged more deliberately (spec section 2's explicit MVP exclusions
+and section 61's Phase 8).
 
 ## Engine
 
