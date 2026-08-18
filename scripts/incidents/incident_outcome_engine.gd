@@ -15,6 +15,14 @@ static func resolve(
 	if type_def.possible_outcomes.is_empty():
 		return "unresolved"
 	var skill_avg: float = _average_relevant_skill(assigned_officers)
+	# Spec section 9: sergeants are resources the player can specifically
+	# commit to a difficult incident, and that choice should matter. Folded
+	# into skill_avg (rather than a separate flat multiplier on every
+	# outcome weight, which the roll below normalises by total and so would
+	# have zero effect) so it pulls favoured-skill outcomes the same way
+	# officer competence already does.
+	if needs_supervisor(incident, assigned_officers):
+		skill_avg = clampf(skill_avg + (0.15 if has_supervisor(assigned_officers) else -0.15), 0.0, 1.0)
 	var avg_fatigue: float = _average_fatigue(assigned_officers)
 	var weights: Array[float] = []
 	var total := 0.0
@@ -37,6 +45,28 @@ static func resolve(
 		if roll <= cumulative:
 			return type_def.possible_outcomes[i].get("id", "unresolved")
 	return type_def.possible_outcomes[-1].get("id", "unresolved")
+
+## Spec section 9: "a supervisor may be required for difficult incidents,
+## officer support, developing incidents, incidents involving inexperienced
+## officers." Deliberately simple rules, not supervisory AI, per spec.
+## `officers` is optional so callers who only have the incident (e.g. the
+## panel, before any unit is assigned) can still check the incident-only
+## conditions.
+static func needs_supervisor(incident: Incident, officers: Array[Officer] = []) -> bool:
+	if incident.escalation_level > 0:
+		return true
+	if incident.state == GameEnums.IncidentState.DEVELOPING:
+		return true
+	for officer in officers:
+		if officer.experience == GameEnums.OfficerExperience.LOW:
+			return true
+	return false
+
+static func has_supervisor(officers: Array[Officer]) -> bool:
+	for officer in officers:
+		if officer.rank == GameEnums.OfficerRank.SERGEANT:
+			return true
+	return false
 
 static func _average_relevant_skill(officers: Array[Officer]) -> float:
 	if officers.is_empty():

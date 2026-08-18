@@ -142,6 +142,7 @@ func _on_intent_pressed(intent) -> void:
 func _add_assigned_units_block(incident: Incident) -> void:
 	add_divider()
 	add_mini_header("ASSIGNED")
+	_add_supervisor_line(incident)
 	if incident.assigned_unit_ids.is_empty():
 		add_dim_line("(no units assigned)")
 		return
@@ -152,13 +153,50 @@ func _add_assigned_units_block(incident: Incident) -> void:
 		var row := HBoxContainer.new()
 		content.add_child(row)
 		var label := Label.new()
-		label.text = "%s -- %s" % [unit.callsign, _unit_status_text(unit)]
+		label.text = "%s%s -- %s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit)]
 		label.custom_minimum_size = Vector2(220, 0)
 		row.add_child(label)
 		var recall_button := Button.new()
 		recall_button.text = "Recall"
 		recall_button.pressed.connect(_on_stand_down.bind(unit_id))
 		row.add_child(recall_button)
+
+## Spec section 9: surfaces whether this incident could use a sergeant's
+## attention (difficult/developing/an inexperienced crew) and whether one
+## is currently assigned -- the outcome engine actually weights this, so
+## the panel makes the same condition visible before the player decides.
+func _add_supervisor_line(incident: Incident) -> void:
+	var officers: Array[Officer] = _assigned_officers(incident)
+	if not IncidentOutcomeEngine.needs_supervisor(incident, officers):
+		return
+	var label := Label.new()
+	if IncidentOutcomeEngine.has_supervisor(officers):
+		label.text = "A sergeant is supervising this incident."
+		label.modulate = Color(0.5, 0.85, 0.4)
+	else:
+		label.text = "Supervisor recommended -- consider sending a sergeant."
+		label.modulate = Color(0.9, 0.65, 0.3)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	content.add_child(label)
+
+func _sergeant_tag(unit: PoliceUnit) -> String:
+	for officer_id in unit.officer_ids:
+		var officer: Officer = Simulation.core.officer_manager.get_officer(officer_id)
+		if officer and officer.rank == GameEnums.OfficerRank.SERGEANT:
+			return " (Sgt)"
+	return ""
+
+func _assigned_officers(incident: Incident) -> Array[Officer]:
+	var officers: Array[Officer] = []
+	for unit_id in incident.assigned_unit_ids:
+		var unit: PoliceUnit = Simulation.core.resource_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		for officer_id in unit.officer_ids:
+			var officer: Officer = Simulation.core.officer_manager.get_officer(officer_id)
+			if officer:
+				officers.append(officer)
+	return officers
 
 func _on_stand_down(unit_id: String) -> void:
 	Simulation.commands().stand_down_unit(unit_id)
@@ -177,7 +215,7 @@ func _add_available_units_block(incident: Incident) -> void:
 		var row := HBoxContainer.new()
 		content.add_child(row)
 		var label := Label.new()
-		label.text = "%s -- %s" % [unit.callsign, _unit_status_text(unit)]
+		label.text = "%s%s -- %s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit)]
 		label.custom_minimum_size = Vector2(220, 0)
 		row.add_child(label)
 		var send_button := Button.new()

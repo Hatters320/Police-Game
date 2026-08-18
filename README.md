@@ -124,6 +124,23 @@ neighbourhood officer to an incident and confirmed it reaches AVAILABLE
 again and reveals a fact once the task duration elapses, and confirmed
 every officer is forced UNAVAILABLE once the clock passes 21:00.
 
+- **Supervision (spec section 9).** Sergeants existed only as an officer
+  rank with no mechanical effect anywhere -- fixed. `IncidentOutcomeEngine
+  .needs_supervisor()` flags an incident as wanting a sergeant's attention
+  once it's escalated, DEVELOPING, or crewed by an inexperienced officer
+  (spec's exact conditions); the incident panel surfaces this ("Supervisor
+  recommended" / "A sergeant is supervising this incident") and tags
+  sergeant-crewed units in both the assigned and available-units lists so
+  the player can act on it without opening each unit individually. A
+  sergeant's presence on a incident that needs one now measurably shifts
+  outcome resolution (folded into the same skill-competence term
+  `IncidentOutcomeEngine` already uses for officer skill/fatigue, not a
+  separate flat multiplier, since a uniform scaling of every outcome's
+  weight has no effect once the roll normalises by the total). Verified
+  against the real engine: `needs_supervisor` confirmed false before and
+  true after forcing an escalation, and `has_supervisor` confirmed once a
+  sergeant-crewed unit is dispatched.
+
 - **Audio (spec section 55).** Minimal by design, per spec: two short
   synthesized tones (no licensed/recorded assets, no voice acting, no
   radio dialogue) -- an incident alert on every new incident, and a
