@@ -21,3 +21,8 @@ Simulation="*res://autoload/simulation.gd"
 [display]
 
 window/handheld/orientation="landscape"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
