@@ -757,6 +757,105 @@ note in this file, the absolute numbers themselves (~1.2 "fps") reflect
 this sandbox's GPU-less software rendering fallback, not a real device;
 only the same-sandbox relative comparison is a valid signal here.
 
+Real playtesting on that build reported three genuine problems, all fixed
+this round and reverified the same way.
+
+Cars and pedestrians read as close to building-sized. They actually were:
+CAR_SCALE 0.4 put the longest car (delivery, 2.85-3.25 native units) at
+1.3 units long -- *longer than a house's own footprint* (1.0-1.3) -- and
+PERSON_SCALE 0.2 put a person at 0.75 units tall, nearly a whole house.
+Both scales had already been derived once as "the strict, proportionally
+correct figure" in an earlier round (CAR_SCALE ~0.25, PERSON_SCALE ~0.11)
+but shipped bigger than that on purpose, trading correct proportion for
+on-screen legibility in a sandbox with no real device to check against.
+Real playtesting is exactly the signal that tradeoff needed, and it came
+back the other way -- restored to the strict figures: every car is now
+0.28-0.45 tall and 0.69-0.81 long, a person 0.41 tall, both clearly
+smaller than a house on every axis and still a visible silhouette
+(confirmed against a real Web export screenshot, not just the arithmetic).
+
+Cars and pedestrians also drove/walked straight through buildings. This
+was structural, not cosmetic: `RoadWalker` was following `_world.
+road_nodes`/`road_edges` -- the original gameplay `RoadGraph`, generated
+for the old 2D top-down map, whose nodes sit tens of units apart and
+whose edges are straight lines with zero awareness of where
+`_build_district_blocks()` actually paints road-straight/road-crossroad
+tiles on the much finer per-district `GridMap` lattice. The two graphs
+were never the same graph, so a `RoadWalker` following the old one had no
+structural reason to stay on a visible road at all. `City3DView.
+_build_walk_graph()` now builds the walk graph from the real placed
+street cells instead (`_street_cells`, recorded the moment
+`_build_district_blocks()` places each tile), with edges only between
+orthogonally-adjacent street cells, linked across districts through the
+same hub-to-hub positions `_build_district_connectors()` already dressed
+with a bridge and lights last round -- so a car crossing a gap now
+visibly drives over the dressed bridge instead of cutting through open
+ground or a building. A headless scene-tree check building this graph
+found it wasn't quite that simple: `_street_cells` comes from
+`Geometry2D.is_point_in_polygon` against each district's real (irregular)
+boundary, and a handful of cells right at the polygon edge ended up with
+none of their would-be neighbours also inside the polygon -- 12 tiny 1-6
+cell dead-end stubs, disconnected from the main 762-cell network, that a
+`RoadWalker` unlucky enough to *start* in one would loop forever with no
+way out. Fixed by keeping only the largest connected component of the
+graph (`_largest_component()`) -- confirmed after the fix that all 762
+real nodes (street cells plus the 8 pairs of inter-district hub
+pseudo-nodes) form exactly one connected component, so every walker can
+reach the whole town.
+
+Verifying the road-graph fix took a genuine debugging detour. A first
+headless check advanced every `RoadWalker` by 0.5-second steps and found
+only 8 of 18 actually moved, with roughly half the sampled positions
+landing off the expected road segment -- alarming, since the whole point
+of this round was to stop that. The cause turned out to be the test, not
+the fix: `RoadWalker._process()` calls `_advance()` and returns
+*without* repositioning on whichever frame a segment finishes (a
+pre-existing detail, unchanged from before this round) -- invisible at a
+real 60fps frame delta (~0.017s), where the one skipped-reposition frame
+is a single imperceptible tick, but at CAR_SPEED 3.2 a 0.5-second step
+always overshoots a 1-unit street-cell segment, so the crude test hit
+that branch on *every single step* and never saw the car actually move.
+Re-run at a realistic 240 steps of 1/60s (4 simulated seconds at real
+frame timing): all 18 walkers moved, and all 216 sampled positions landed
+exactly on the real street/bridge graph -- confirmed by the same direct
+scene-tree/position-tracking method the moving-traffic round originally
+used, not just re-reading the code.
+
+Every building of a given shape also rendered in exactly one colour --
+true, since every GLB in a Kenney kit shares one baked "colormap" texture
+(confirmed earlier this project by inspecting road-straight.glb's own
+glTF material directly), so nothing about placement ever varied it.
+Fixed with a small muted/pastel `BUILDING_TINTS` palette (white/no-op
+plus six tones) applied as a `StandardMaterial3D.albedo_color` multiply
+over the existing texture -- keeps the baked shading/windows/trim, just
+tints the wall tone, the same way real housing stock varies paint colour
+on an otherwise identical build. Filler buildings (the dense GridMap
+majority of the town) register every variant x every tint as its own
+`_register_tinted_library_item()` MeshLibrary entry -- a shallow mesh
+duplicate with an independently duplicated, re-tinted surface material,
+still a fixed one-time registration cost regardless of placed-cell count,
+the same reasoning that put filler buildings on a shared GridMap in the
+first place. Individually-instanced buildings (named Locations, the
+modular-buildings gateway landmarks) get a per-instance
+`set_surface_override_material()` tint instead -- factory-kit gateway
+clutter (structure-short/hopper-round for an INDUSTRIAL crossing)
+deliberately excluded, since utilitarian equipment tinted pastel colours
+read as wrong, not varied. Confirmed against a real Web export screenshot
+(cropped and upscaled): the same building shapes that used to render in
+one uniform tone per district now show white, cream, blue-grey, and dark
+variants side by side.
+
+Frame time was sampled the same way as every prior round, before vs after
+on the same real Web export build in the same sandbox: 830.4ms/frame
+before, 870.4ms/frame after -- a ~5% swing, within the same run-to-run
+sandbox-noise range already seen in earlier rounds' checks (a prior round
+saw a comparable-magnitude swing in the *other* direction), and there's
+no plausible per-frame cost this round could have added: every new cost
+(tinted MeshLibrary registration, largest-component graph filtering) is a
+one-time scene-build cost, not something that runs per rendered frame.
+Reported honestly with the same caveat as always -- this sandbox has no
+real GPU, so only the same-sandbox relative comparison means anything.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a

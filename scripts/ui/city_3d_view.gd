@@ -188,6 +188,27 @@ const FILLER_BUILDING_VARIANTS := {
 ## structure) -- matches spec's location tagging, see WestfordMapFactory.
 const NO_BUILDING_TAGS := ["park", "car_park"]
 
+## Real playtesting reported every building reading as one uniform tone --
+## true, since every building GLB in a kit shares the exact same
+## "colormap" texture/material (confirmed by inspecting road-straight.glb's
+## own glTF material earlier this project), so nothing about placement ever
+## varied colour. Applied as a StandardMaterial3D.albedo_color multiply
+## over each building's existing texture (white/no-op is the first entry,
+## so some buildings keep the kit's native look) rather than replacing the
+## texture -- keeps the baked shading/windows/trim, just tints the wall
+## tone, the same way real housing stock varies paint colour on an
+## otherwise identical build. Kept deliberately muted/pastel, not
+## saturated, so it reads as varied render/paint rather than a toy palette.
+const BUILDING_TINTS: Array[Color] = [
+	Color(1.0, 1.0, 1.0),
+	Color(0.90, 0.82, 0.68),
+	Color(0.78, 0.85, 0.90),
+	Color(0.85, 0.78, 0.70),
+	Color(0.80, 0.88, 0.78),
+	Color(0.88, 0.76, 0.76),
+	Color(0.93, 0.90, 0.72),
+]
+
 const FILLER_SEED := 990817
 
 ## Kenney's road/building modules are exactly 1x1x1 (measured via AABB),
@@ -278,22 +299,22 @@ const PEOPLE_DIR := "res://data/models/people/"
 ## per-instance-node performance regression the old scattered-parked-car
 ## GridMap fix specifically existed to avoid.
 ##
-## CAR_SCALE was measured, not guessed: the car-kit's native scale put
-## every vehicle (hatchback/taxi/van/delivery/police/ambulance alike, all
-## from the same kit) at a 2.75-3.25 unit length against ~1-1.4 unit-wide
-## suburban houses and a 1-unit GridMap cell -- visibly, and correctly,
-## reported as "too big" against a real screenshot. The strict
-## house-height-derived figure (~0.25, putting a car's footprint just
-## inside one building cell) turned out to make cars so small next to the
-## dense building grid that they were nearly impossible to actually pick
-## out and confirm as moving -- checked directly with a temporary 10x
-## scale purely to prove the RoadWalker/rendering pipeline itself was
-## fine (it was; the real cars just read as a barely-visible speck at
-## normal camera zoom). 0.4 is a deliberate legibility compromise: still
-## roughly a third smaller than the old native scale and clearly smaller
-## than a house, but a car-sized silhouette on the road you can actually
-## see driving rather than a technically-correct dot.
-const CAR_SCALE := 0.4
+## CAR_SCALE was re-measured after real playtesting reported cars reading
+## as building-sized, not just "a bit big": the car-kit's native multi-part
+## AABB (body + 4 separate wheel meshes, measured together) is 2.75-3.25
+## units long and 1.1-1.8 units tall against suburban houses measuring
+## 0.83-1.14 tall with a ~1.0-1.3 footprint. An earlier round had already
+## derived the strict, proportionally-correct figure (~0.25, the longest
+## car landing just under one 1-unit GridMap cell) but shipped 0.4 instead
+## for on-screen legibility -- at 0.4 the longest car (delivery, 3.25
+## native) is 1.3 units long, i.e. *longer than a house's own footprint*,
+## which is exactly the "way too big" a real player then reported. Restored
+## to the strict figure now that correct relative scale has been asked for
+## explicitly over maximum visibility: at 0.25 every car is 0.69-0.81 units
+## long and 0.28-0.45 tall, comfortably smaller than a house on every axis
+## and still a clearly visible silhouette on the road (verified against a
+## real Web export screenshot, not just the arithmetic -- see the README).
+const CAR_SCALE := 0.25
 const CAR_VARIANTS := ["hatchback-sports", "taxi", "van", "delivery"]
 const CAR_COUNT := 10
 const CAR_SPEED := 3.2
@@ -309,13 +330,13 @@ const CAR_SPEED := 3.2
 ## _build_pedestrians(). Measured directly: characterMedium's bind-pose
 ## AABB is ~3.76 units tall next to suburban houses measuring ~0.83-1.14
 ## units tall (the same "too big" problem the cars had). Like CAR_SCALE
-## above, the strict height-derived figure (~0.11) read as an
-## all-but-invisible speck next to the building grid at normal camera
-## zoom -- confirmed harmless by a temporary 10x-scale render that proved
-## the animation/rendering side was working correctly the whole time. 0.2
-## keeps a person clearly shorter than a house while actually being
-## visible as a walking figure.
-const PERSON_SCALE := 0.2
+## above, an earlier round shipped 0.2 (person height 0.75, nearly a whole
+## house tall) over the strict, proportionally-derived ~0.11 for on-screen
+## legibility -- real playtesting then reported pedestrians as too big
+## alongside the cars, so restored to the strict figure: 0.11 puts a
+## person at 0.41 units tall, clearly shorter than a house and comparable
+## to a car's own height rather than towering over both.
+const PERSON_SCALE := 0.11
 const PERSON_COUNT := 8
 const PERSON_SPEED := 0.9
 ## Walk a "sidewalk" a little off the road centreline instead of straight
@@ -372,6 +393,19 @@ var _district_offset: Dictionary = {}
 ## districts and so end up displaced by different amounts -- which is
 ## exactly what makes the connecting road visibly shorten).
 var _node_district: Dictionary = {}
+
+## Vector2i grid cell -> Vector3 world position, populated by
+## _build_district_blocks() for every cell it places a road-straight/
+## road-crossroad tile on -- i.e. the actual street lattice as rendered,
+## not the original gameplay RoadGraph. RoadWalker's traffic/pedestrians
+## walk this instead (see _build_walk_graph()) precisely so they only ever
+## move where a road tile is actually painted on screen.
+var _street_cells: Dictionary = {}
+## Array of {district_a, district_b, a: Vector3, b: Vector3}, one per real
+## inter-district hub-to-hub edge, cached by _build_district_connectors()
+## and reused by _build_walk_graph() so the walk graph's cross-district
+## hops follow the exact same positions the dressed bridge/lights render.
+var _inter_district_edges: Array = []
 
 ## Shared AnimationLibrary resources extracted once from idle.fbx/run.fbx,
 ## reused by every pedestrian's own runtime AnimationPlayer rather than
@@ -587,6 +621,52 @@ func _register_library_item(path: String) -> int:
 	_library_item_by_path[path] = id
 	return id
 
+## Same idea as _register_library_item, but for a tinted variant: a
+## per-(path, tint) cached MeshLibrary entry sharing the base mesh's
+## geometry (a shallow Mesh.duplicate(), which does not copy surface
+## arrays) with an independently duplicated surface material so tinting
+## one variant never touches another's, or the base untinted item's own
+## material. Still a fixed, one-time registration cost regardless of how
+## many GridMap cells end up using it -- the whole reason filler buildings
+## go through the shared GridMap/MeshLibrary in the first place.
+func _register_tinted_library_item(path: String, tint: Color) -> int:
+	var key: String = path + "#" + tint.to_html(false)
+	if _library_item_by_path.has(key):
+		return _library_item_by_path[key]
+	var base_mesh: Mesh = _load_mesh(path)
+	if base_mesh == null:
+		return -1
+	if tint.is_equal_approx(Color(1.0, 1.0, 1.0)):
+		return _register_library_item(path)
+	var tinted_mesh: Mesh = base_mesh.duplicate()
+	for surf in tinted_mesh.get_surface_count():
+		var mat: Material = tinted_mesh.surface_get_material(surf)
+		if mat is StandardMaterial3D:
+			var tinted_mat: StandardMaterial3D = mat.duplicate()
+			tinted_mat.albedo_color = tint
+			tinted_mesh.surface_set_material(surf, tinted_mat)
+	var id: int = _next_library_item_id
+	_next_library_item_id += 1
+	_mesh_library.create_item(id)
+	_mesh_library.set_item_mesh(id, tinted_mesh)
+	_library_item_by_path[key] = id
+	return id
+
+## Per-instance tint for an individually-instanced building (named
+## Locations, gateway landmarks) -- a duplicated surface-material override
+## on each MeshInstance3D child, so it never touches the shared source mesh
+## other instances of the same variant still use untinted.
+func _apply_tint(inst: Node3D, tint: Color) -> void:
+	if tint.is_equal_approx(Color(1.0, 1.0, 1.0)):
+		return
+	for child in inst.get_children():
+		if child is MeshInstance3D:
+			var mat: Material = child.get_active_material(0)
+			if mat is StandardMaterial3D:
+				var tinted_mat: StandardMaterial3D = mat.duplicate()
+				tinted_mat.albedo_color = tint
+				child.set_surface_override_material(0, tinted_mat)
+
 func _world_to_cell(pos_3d: Vector3) -> Vector2i:
 	return Vector2i(floori(pos_3d.x / GRID_CELL_SIZE), floori(pos_3d.z / GRID_CELL_SIZE))
 
@@ -615,6 +695,7 @@ func _build_named_buildings() -> void:
 		var inst: Node3D = scene.instantiate()
 		inst.position = _cell_center_3d(cell)
 		inst.rotation.y = (hash(location.id + "r") % 4) * (PI * 0.5)
+		_apply_tint(inst, BUILDING_TINTS[hash(location.id + "tint") % BUILDING_TINTS.size()])
 		add_child(inst)
 
 ## The actual grid: for each district, every cell in its own real
@@ -645,9 +726,14 @@ func _build_district_blocks() -> void:
 			continue
 		var land_use: LandUse = DISTRICT_LAND_USE.get(district.id, LandUse.RESIDENTIAL)
 		var variants: Array = FILLER_BUILDING_VARIANTS.get(land_use, FILLER_BUILDING_VARIANTS[LandUse.URBAN])
+		# Every variant x every tint, so the random pick below chooses both
+		# a building shape and a wall colour independently -- otherwise
+		# every instance of "building-i", say, would still be the exact
+		# same single colour as every other "building-i" in town.
 		var item_ids: Array = []
 		for variant_path in variants:
-			item_ids.append(_register_library_item(variant_path + ".glb"))
+			for tint in BUILDING_TINTS:
+				item_ids.append(_register_tinted_library_item(variant_path + ".glb", tint))
 
 		var block_size: int = BLOCK_SIZE_BY_LAND_USE.get(land_use, 3)
 		var street_period: int = block_size + 1
@@ -684,13 +770,16 @@ func _build_district_blocks() -> void:
 				if is_street_col and is_street_row:
 					_grid_map.set_cell_item(grid_pos, _road_crossroad_item)
 					_occupied_cells[cell] = true
+					_street_cells[cell] = cell_center_3d
 				elif is_street_col:
 					var vertical: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, PI * 0.5))
 					_grid_map.set_cell_item(grid_pos, _road_straight_item, vertical)
 					_occupied_cells[cell] = true
+					_street_cells[cell] = cell_center_3d
 				elif is_street_row:
 					_grid_map.set_cell_item(grid_pos, _road_straight_item)
 					_occupied_cells[cell] = true
+					_street_cells[cell] = cell_center_3d
 				elif rng.randf() < OPEN_CELL_CHANCE:
 					# Left as bare ground -- deliberately not marked
 					# occupied unless a decoration lands here, so the
@@ -760,6 +849,7 @@ func _build_district_connectors() -> void:
 			continue
 		var a: Vector3 = _world_to_3d_in_district(node_by_id[edge.from_id], district_a)
 		var b: Vector3 = _world_to_3d_in_district(node_by_id[edge.to_id], district_b)
+		_inter_district_edges.append({"district_a": district_a, "district_b": district_b, "a": a, "b": b})
 		_dress_connector_edge(connectors_root, a, b, district_a, district_b, rng)
 
 func _dress_connector_edge(root: Node3D, a: Vector3, b: Vector3, district_a: String, district_b: String, rng: RandomNumberGenerator) -> void:
@@ -816,6 +906,11 @@ func _place_gateway(root: Node3D, position: Vector3, district_id: String, rng: R
 	root.add_child(gateway_inst)
 	gateway_inst.position = position
 	gateway_inst.rotation.y = (rng.randi() % 4) * (PI * 0.5)
+	# Only tint the modular-buildings houses/towers -- factory-kit clutter
+	# (structure-short/hopper-round for an INDUSTRIAL gateway) is meant to
+	# read as utilitarian equipment, not a painted building.
+	if gateway_path.begins_with(MODULAR_DIR):
+		_apply_tint(gateway_inst, BUILDING_TINTS[rng.randi() % BUILDING_TINTS.size()])
 
 ## Which gateway landmark marks a crossing's entrance on district_id's side,
 ## keyed off its own land use so an industrial crossing gets factory clutter
@@ -843,27 +938,111 @@ func _gateway_variant_for(district_id: String, rng: RandomNumberGenerator) -> St
 	return variants[rng.randi() % variants.size()]
 
 ## Builds the node_id -> 3D position / node_id -> Array[neighbour ids]
-## lookups RoadWalker needs, from the same _world.road_nodes/road_edges the
-## rest of this file already reads -- shared between _build_traffic() and
-## _build_pedestrians() so cars and people move along the identical
-## real-connectivity graph.
+## lookups RoadWalker needs -- shared between _build_traffic() and
+## _build_pedestrians() so cars and people move along the identical graph.
+##
+## This used to read straight from _world.road_nodes/road_edges -- the
+## original gameplay RoadGraph, generated for the old 2D top-down map at a
+## much larger scale/spacing. Real playtesting reported cars and
+## pedestrians driving/walking straight through buildings, and the reason
+## is structural, not cosmetic: that graph's nodes are tens of units apart
+## and its edges are straight lines between them, with zero awareness of
+## where _build_district_blocks() actually painted road-straight/
+## road-crossroad tiles on the much finer per-district GridMap lattice --
+## the two were never the same graph, so a RoadWalker following the old one
+## had no reason to stay on visible road tiles at all.
+##
+## Nodes here are the real street cells themselves (_street_cells, keyed by
+## Vector2i grid coordinate, populated by _build_district_blocks() at the
+## exact moment it places each road tile), with edges only between
+## orthogonally-adjacent street cells -- exactly the tiles rendered on
+## screen, so a walker can only ever be on a real road. Crossing between
+## districts reuses _inter_district_edges (the same hub-to-hub positions
+## _build_district_connectors() already dressed with a bridge/lights this
+## round): each hub becomes an extra pseudo-node linked to the nearest real
+## street cell in its own district and to its opposite hub, so a car
+## crossing a gap visibly drives over the dressed bridge instead of
+## teleporting or cutting through open ground.
 func _build_walk_graph() -> Dictionary:
 	var positions: Dictionary = {}
-	for node: RoadNode in _world.road_nodes:
-		positions[node.id] = _world_to_3d_in_district(node.position, _node_district.get(node.id, ""))
-
 	var adjacency: Dictionary = {}
-	for edge: RoadEdge in _world.road_edges:
-		if not positions.has(edge.from_id) or not positions.has(edge.to_id):
-			continue
-		if not adjacency.has(edge.from_id):
-			adjacency[edge.from_id] = []
-		if not adjacency.has(edge.to_id):
-			adjacency[edge.to_id] = []
-		adjacency[edge.from_id].append(edge.to_id)
-		adjacency[edge.to_id].append(edge.from_id)
 
-	return {"positions": positions, "adjacency": adjacency}
+	for cell in _street_cells:
+		positions[cell] = _street_cells[cell]
+		var neighbours: Array = []
+		for delta in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var neighbour: Vector2i = cell + delta
+			if _street_cells.has(neighbour):
+				neighbours.append(neighbour)
+		adjacency[cell] = neighbours
+
+	for edge_info in _inter_district_edges:
+		var hub_a: Vector3 = edge_info["a"]
+		var hub_b: Vector3 = edge_info["b"]
+		var cell_a: Vector2i = _nearest_street_cell(hub_a)
+		var cell_b: Vector2i = _nearest_street_cell(hub_b)
+		if not positions.has(cell_a) or not positions.has(cell_b):
+			continue
+		var hub_a_id: String = "hub_%s_%s_a" % [edge_info["district_a"], edge_info["district_b"]]
+		var hub_b_id: String = "hub_%s_%s_b" % [edge_info["district_a"], edge_info["district_b"]]
+		positions[hub_a_id] = hub_a
+		positions[hub_b_id] = hub_b
+		adjacency[hub_a_id] = [cell_a, hub_b_id]
+		adjacency[hub_b_id] = [cell_b, hub_a_id]
+		adjacency[cell_a].append(hub_a_id)
+		adjacency[cell_b].append(hub_b_id)
+
+	return _largest_component(positions, adjacency)
+
+## _street_cells is built from Geometry2D.is_point_in_polygon against each
+## district's real (irregular) boundary, so a handful of street cells right
+## at the polygon edge can end up with none of their would-be neighbours
+## also inside the polygon -- a tiny 1-6 cell dead-end stub, disconnected
+## from the rest of the town's street lattice (confirmed via a headless
+## scene-tree inspection: 12 such stubs, 30 cells total, out of ~790 real
+## nodes). Harmless to a car/pedestrian already on the main network, but a
+## RoadWalker unlucky enough to *start* in one would be stuck looping a
+## handful of cells forever -- dropped from the graph entirely instead, so
+## every walker starts somewhere that can actually reach the whole
+## connected town.
+func _largest_component(positions: Dictionary, adjacency: Dictionary) -> Dictionary:
+	var best_visited: Dictionary = {}
+	var unvisited: Dictionary = positions.duplicate()
+	while not unvisited.is_empty():
+		var start = unvisited.keys()[0]
+		var visited: Dictionary = {}
+		var stack: Array = [start]
+		while not stack.is_empty():
+			var cur = stack.pop_back()
+			if visited.has(cur):
+				continue
+			visited[cur] = true
+			unvisited.erase(cur)
+			for n in adjacency.get(cur, []):
+				if not visited.has(n):
+					stack.append(n)
+		if visited.size() > best_visited.size():
+			best_visited = visited
+	var filtered_positions: Dictionary = {}
+	var filtered_adjacency: Dictionary = {}
+	for id in best_visited:
+		filtered_positions[id] = positions[id]
+		filtered_adjacency[id] = adjacency[id]
+	return {"positions": filtered_positions, "adjacency": filtered_adjacency}
+
+## Brute-force nearest _street_cells entry to a world position -- called
+## only a handful of times (twice per real inter-district edge, 16 calls
+## total) at scene-build time, so a linear scan over a few hundred cells is
+## fine; no spatial index needed for a one-time cost this small.
+func _nearest_street_cell(point: Vector3) -> Vector2i:
+	var best_cell := Vector2i.ZERO
+	var best_dist := INF
+	for cell in _street_cells:
+		var d: float = _street_cells[cell].distance_squared_to(point)
+		if d < best_dist:
+			best_dist = d
+			best_cell = cell
+	return best_cell
 
 ## A small, fixed number of cars, each its own RoadWalker instance
 ## following the real road graph forever -- this is the actual fix for
@@ -908,7 +1087,7 @@ func _build_traffic() -> void:
 		var walker := RoadWalker.new()
 		walker.add_child(car_inst)
 		traffic_root.add_child(walker)
-		var start_id: String = node_ids[rng.randi() % node_ids.size()]
+		var start_id: Variant = node_ids[rng.randi() % node_ids.size()]
 		walker.setup(positions, adjacency, start_id, CAR_SPEED, 0.0, FILLER_SEED + 100 + i)
 
 ## Extracts the idle/run AnimationLibrary from PEOPLE_DIR's separately
@@ -982,7 +1161,7 @@ func _build_pedestrians() -> void:
 		anim_player.play(run_data["anim_name"])
 
 		var lateral: float = PERSON_LATERAL_OFFSET if rng.randf() < 0.5 else -PERSON_LATERAL_OFFSET
-		var start_id: String = node_ids[rng.randi() % node_ids.size()]
+		var start_id: Variant = node_ids[rng.randi() % node_ids.size()]
 		walker.setup(positions, adjacency, start_id, PERSON_SPEED, lateral, FILLER_SEED + 200 + i)
 
 ## Kenney's single-mesh-single-node GLBs (every building/road piece here)
