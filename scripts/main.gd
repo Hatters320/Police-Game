@@ -350,7 +350,16 @@ func _pan_by_screen_delta(relative: Vector2) -> void:
 	ground_forward /= foreshortening
 	var ground_right: Vector3 = camera.global_transform.basis.x
 	camera.position -= ground_right * (relative.x * world_units_per_px)
-	camera.position -= ground_forward * (relative.y * world_units_per_px / foreshortening)
+	# + here, not -=: ground_forward is derived from the camera's local UP
+	# axis projected onto the ground, which points toward the FAR/top-of-
+	# screen side of the tilted view -- moving the camera further along it
+	# is what pulls near/bottom-of-screen content up to reveal more of the
+	# far side, the same direction relationship screen_y already has with
+	# camera position once the basis.y sign flip from projecting "camera
+	# up" to "screen down" is accounted for. Confirmed backwards against a
+	# real drag on a real Web export (content moved up when dragging down)
+	# before this fix, and correct after.
+	camera.position += ground_forward * (relative.y * world_units_per_px / foreshortening)
 
 func _begin_briefing(shift_number: int) -> void:
 	var roster: Array[Officer] = OfficerFactory.build_shift_roster()
