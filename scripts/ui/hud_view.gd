@@ -14,32 +14,35 @@ var _incidents_label: Label
 var _staffing_label: Label
 var _fatigue_label: Label
 var _feed_list: VBoxContainer
-var _overlay_row: HBoxContainer
-var _panels_row: HBoxContainer
 var _controls_row: HBoxContainer
+var _overlay_picker: OptionButton
 var _map_view: MapView
 
 var _fatigue_warning_count: int = 0
 
-## Minimum touch target size (spec section 56: "buttons must be large
-## enough for mobile use, avoid tiny controls"), sized to clear the ~44px
-## real-screen-pixel guideline once the project's stretch/canvas_items
-## scaling (project.godot) is applied on an actual phone, without going
-## bigger than that and eating the screen -- the previous (72, 54) was
-## tuned before that scaling existed and, once it did, rendered these
-## rows (plus the ones below) at roughly double their intended on-screen
-## size, confirmed by real mobile playtesting: the HUD was consuming most
-## of the vertical screen space above the map.
-const TOUCH_BUTTON_SIZE := Vector2(60, 42)
-const STAT_FONT_SIZE := 17
+## A real player screenshot at real device width found the previous
+## chrome (4 stacked rows up top, each with 42-52px buttons at the
+## project's 22px default font) consuming most of the screen, leaving
+## barely any map -- "the sizes of all the menus and panel boxes needs to
+## be reduced... top menu should be long and thin along the top". This
+## pass shrinks every control down to a genuinely thin strip: one stats
+## line plus one control line, both well under half the height the old
+## 4-row layout used.
+const TOUCH_BUTTON_SIZE := Vector2(34, 22)
+const CONTROL_FONT_SIZE := 11
+const STAT_FONT_SIZE := 11
+
+## Where the thin top HUD ends and the always-docked side panels begin --
+## SidePanelView positions against this same value so nothing overlaps.
+const HUD_BOTTOM := 44.0
 
 func _ready() -> void:
 	layer = 2 # above DayNightOverlay's tint (layer 1), below side panels (layer 3)
 
 	var top_bar := HBoxContainer.new()
 	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	top_bar.position = Vector2(20, 12)
-	top_bar.add_theme_constant_override("separation", 16)
+	top_bar.position = Vector2(8, 3)
+	top_bar.add_theme_constant_override("separation", 10)
 	add_child(top_bar)
 
 	_time_label = _add_stat_label(top_bar)
@@ -48,16 +51,14 @@ func _ready() -> void:
 	_staffing_label = _add_stat_label(top_bar)
 	_fatigue_label = _add_stat_label(top_bar)
 
-	# On its own row below the stats, not beside them -- side by side, the
-	# stat row's text and this row's buttons collided on narrower real
-	# phone screens (confirmed by real mobile playtesting at 844px wide).
-	# Stacking rows needs vertical room, which phones have far more of than
-	# horizontal, so this scales to any reasonably-sized viewport without
-	# per-resolution tuning.
+	# Every remaining control -- speed/zoom, the overlay filter, and the
+	# panel toggles -- now lives on this one thin row rather than three
+	# separate ones. Fits comfortably under the 640px design canvas even
+	# with every control present (measured well under 640 headless).
 	_controls_row = HBoxContainer.new()
 	_controls_row.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_controls_row.position = Vector2(20, 38)
-	_controls_row.add_theme_constant_override("separation", 8)
+	_controls_row.position = Vector2(8, 20)
+	_controls_row.add_theme_constant_override("separation", 6)
 	add_child(_controls_row)
 	_add_button(_controls_row, "Pause", func(): Simulation.commands().pause())
 	_add_button(_controls_row, "1x", func(): Simulation.commands().set_speed(1.0))
@@ -73,62 +74,37 @@ func _ready() -> void:
 	# tappable to open that incident directly, since finding its marker on
 	# a busy map is a second, harder way to reach the same thing.
 	#
-	# Docked bottom-centre, in the gap between ResourcesPanelView and
-	# IncidentsListPanelView (each a 180-wide dock with a 20px margin, per
-	# their _panel_width() overrides) -- matching the mockup's permanent
-	# "COMMUNICATIONS" box position rather than spanning the full width
-	# behind them.
-	const COMMS_LEFT := 210.0
-	const COMMS_WIDTH := 220.0
+	# A thin strip spanning the full width along the very bottom -- mirrors
+	# the thin top bar rather than the earlier boxed panel wedged into the
+	# gap between the two docked side panels, per the same feedback this
+	# whole pass responds to ("bottom comms panel should [be] long and thin
+	# along the bottom").
 	var feed_panel := PanelContainer.new()
 	var feed_style := StyleBoxFlat.new()
 	feed_style.bg_color = Color(0.05, 0.07, 0.1, 0.85)
 	feed_style.border_color = Color(0.09, 0.16, 0.28)
-	feed_style.set_border_width_all(2)
+	feed_style.set_border_width_all(1)
 	feed_style.content_margin_left = 8
 	feed_style.content_margin_right = 8
-	feed_style.content_margin_top = 4
-	feed_style.content_margin_bottom = 4
+	feed_style.content_margin_top = 2
+	feed_style.content_margin_bottom = 2
 	feed_panel.add_theme_stylebox_override("panel", feed_style)
-	feed_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	feed_panel.position = Vector2(COMMS_LEFT, -100)
-	feed_panel.custom_minimum_size = Vector2(COMMS_WIDTH, 90)
+	feed_panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	feed_panel.position = Vector2(8, -48)
+	feed_panel.custom_minimum_size = Vector2(0, 44)
+	feed_panel.offset_right = -8
 	add_child(feed_panel)
 
-	var feed_column := VBoxContainer.new()
-	feed_panel.add_child(feed_column)
-
-	var comms_header := Label.new()
-	comms_header.text = "COMMUNICATIONS"
-	comms_header.add_theme_font_size_override("font_size", 13)
-	comms_header.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
-	feed_column.add_child(comms_header)
-
+	# Still a real vertical scroll, not a single-line ticker -- "thin" means
+	# noticeably shorter than the old ~90px box (spec section 39/a real
+	# user report both want scroll-back history kept, not traded away for
+	# thinness), not reduced to one line with no way to browse past lines.
 	var feed_scroll := ScrollContainer.new()
-	feed_scroll.custom_minimum_size = Vector2(COMMS_WIDTH - 16.0, 68)
-	feed_column.add_child(feed_scroll)
+	feed_scroll.custom_minimum_size = Vector2(0, 40)
+	feed_panel.add_child(feed_scroll)
 
 	_feed_list = VBoxContainer.new()
-	_feed_list.custom_minimum_size = Vector2(COMMS_WIDTH - 16.0, 0)
 	feed_scroll.add_child(_feed_list)
-
-	_overlay_row = HBoxContainer.new()
-	_overlay_row.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_overlay_row.position = Vector2(20, 84)
-	_overlay_row.add_theme_constant_override("separation", 8)
-	add_child(_overlay_row)
-
-	# Separate row for "open a full panel" buttons (Neighbourhood/Resources/
-	# Incidents) rather than piling them onto _overlay_row's map-filter
-	# toggles -- together the two rows' 9 buttons measured 709px wide on the
-	# 640px design canvas (real headless measurement), well past the edge.
-	# Splitting them across two rows keeps every row comfortably under 640
-	# without shrinking any button below its spec section 56 touch size.
-	_panels_row = HBoxContainer.new()
-	_panels_row.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_panels_row.position = Vector2(20, 126)
-	_panels_row.add_theme_constant_override("separation", 8)
-	add_child(_panels_row)
 
 	Simulation.core.incident_manager.incident_created.connect(_on_incident_created)
 	Simulation.core.incident_manager.incident_escalated.connect(_on_incident_escalated)
@@ -157,6 +133,7 @@ func _add_button(parent: Node, text: String, on_pressed: Callable) -> void:
 	var button := Button.new()
 	button.text = text
 	button.custom_minimum_size = TOUCH_BUTTON_SIZE
+	button.add_theme_font_size_override("font_size", CONTROL_FONT_SIZE)
 	button.pressed.connect(on_pressed)
 	parent.add_child(button)
 
@@ -167,52 +144,37 @@ func wire_zoom_controls(zoom_in: Callable, zoom_out: Callable) -> void:
 	_add_button(_controls_row, "+", zoom_in)
 
 ## Opens NeighbourhoodPanelView (spec section 10) -- placed alongside the
-## overlay toggles since it's the same "open a side panel" action, not a
-## simulation-speed control like the buttons in _controls_row.
+## other panel-toggle buttons since it's the same "open a side panel"
+## action, not a simulation-speed control like Pause/1x/2x/4x.
 func wire_neighbourhood_panel(on_pressed: Callable) -> void:
-	var button := Button.new()
-	button.text = "Neighbourhood"
-	button.add_theme_font_size_override("font_size", 15)
-	button.custom_minimum_size = Vector2(0, 40)
-	button.pressed.connect(on_pressed)
-	_panels_row.add_child(button)
+	_add_button(_controls_row, "Team", on_pressed)
 
 ## Called once by main.gd after MapView exists -- builds the overlay
-## toggle row (spec section 41), and keeps the reference for the event
-## feed's tap-to-open-incident lines below. Kept out of _ready() since it
-## needs a MapView reference to wire the buttons to.
+## filter dropdown (spec section 41: still every overlay, just one control
+## instead of 6 separate toggle buttons, which is most of what let the old
+## 4-row HUD collapse to today's 2 thin ones), and keeps the reference for
+## the event feed's tap-to-open-incident lines below. Kept out of _ready()
+## since it needs a MapView reference to wire to.
 func wire_overlays(map_view: MapView) -> void:
 	_map_view = map_view
-	_add_overlay_button("None", map_view, MapView.OverlayType.NONE)
-	_add_overlay_button("ASB", map_view, MapView.OverlayType.ASB)
-	_add_overlay_button("Violence", map_view, MapView.OverlayType.VIOLENCE)
-	_add_overlay_button("Burglary", map_view, MapView.OverlayType.BURGLARY)
-	_add_overlay_button("Visibility", map_view, MapView.OverlayType.VISIBILITY)
-	_add_overlay_button("Demand", map_view, MapView.OverlayType.DEMAND)
+	_overlay_picker = OptionButton.new()
+	_overlay_picker.custom_minimum_size = Vector2(0, 22)
+	_overlay_picker.add_theme_font_size_override("font_size", CONTROL_FONT_SIZE)
+	var overlays: Array[MapView.OverlayType] = [
+		MapView.OverlayType.NONE, MapView.OverlayType.ASB, MapView.OverlayType.VIOLENCE,
+		MapView.OverlayType.BURGLARY, MapView.OverlayType.VISIBILITY, MapView.OverlayType.DEMAND,
+	]
+	var labels := ["None", "ASB", "Violence", "Burglary", "Visibility", "Demand"]
+	for label in labels:
+		_overlay_picker.add_item(label)
+	_overlay_picker.item_selected.connect(func(index: int): map_view.set_overlay(overlays[index]))
+	_controls_row.add_child(_overlay_picker)
 
 func wire_resources_panel(on_pressed: Callable) -> void:
-	var button := Button.new()
-	button.text = "Resources"
-	button.add_theme_font_size_override("font_size", 15)
-	button.custom_minimum_size = Vector2(0, 40)
-	button.pressed.connect(on_pressed)
-	_panels_row.add_child(button)
+	_add_button(_controls_row, "Res", on_pressed)
 
 func wire_incidents_panel(on_pressed: Callable) -> void:
-	var button := Button.new()
-	button.text = "Incidents"
-	button.add_theme_font_size_override("font_size", 15)
-	button.custom_minimum_size = Vector2(0, 40)
-	button.pressed.connect(on_pressed)
-	_panels_row.add_child(button)
-
-func _add_overlay_button(text: String, map_view: MapView, overlay: MapView.OverlayType) -> void:
-	var button := Button.new()
-	button.text = text
-	button.add_theme_font_size_override("font_size", 15)
-	button.custom_minimum_size = Vector2(0, 40) # spec section 56 -- still a real tap target, just not as wide as the main controls
-	button.pressed.connect(func(): map_view.set_overlay(overlay))
-	_overlay_row.add_child(button)
+	_add_button(_controls_row, "Inc", on_pressed)
 
 func refresh_stats() -> void:
 	var core: SimulationCore = Simulation.core
@@ -311,7 +273,7 @@ func _append_feed(text: String, color: Color = Color.WHITE, incident_id: String 
 		button.flat = true
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD
-		button.add_theme_font_size_override("font_size", 12)
+		button.add_theme_font_size_override("font_size", 10)
 		button.modulate = color
 		button.pressed.connect(func():
 			if _map_view:

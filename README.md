@@ -197,6 +197,39 @@ and above the comms box is meaningfully smaller than before. The
 `Resources`/`Incidents` toggle buttons are the escape valve: either can be
 hidden to get that space back without losing the other.
 
+A real player screenshot at actual device width showed why that tradeoff
+was worse than it needed to be: the previous 4-row HUD (stats, speed
+controls, 6 overlay toggles, 3 panel toggles), each row built from 40-52px
+buttons at the project's 22px default font, was consuming most of the
+screen on its own, before the docked panels even entered into it --
+"the sizes of all the menus and panel boxes needs to be reduced... top
+menu should be long and thin along the top... side panels should be
+thinner and stretch from bottom to top". Reworked around that shape
+directly: the top HUD collapsed from 4 rows to 2 -- one stats line, one
+control line holding Pause/1x/2x/4x/zoom, the neighbourhood/resources/
+incidents toggles, and the 6 overlay filters folded into a single
+`OptionButton` dropdown (`HudView.wire_overlays()`) rather than 6 separate
+buttons, which was most of what let the row collapse at all. Every control
+shrank with it: button height 42px -> 22px, font 15-22px -> 10-12px
+throughout the HUD and both docked panels (`SidePanelView.add_card()`/
+`add_header_bar()`). The comms feed moved from a boxed panel wedged into
+the centre gap to a genuinely thin strip spanning the full width along
+the very bottom, mirroring the thin top bar -- still a real vertical
+`ScrollContainer`, not a single-line ticker, since a real user's fix
+earlier this session was specifically about not losing feed scroll-back
+history, and a single line would have undone that. `ResourcesPanelView`/
+`IncidentsListPanelView` now genuinely stretch the full height between the
+new thin top bar and thin bottom bar (`SidePanelView.PANEL_TOP_Y`, derived
+directly from `HudView.HUD_BOTTOM` so the two can't drift apart) rather
+than stopping partway down, and narrowed further (180px -> 140px). Net
+effect: roughly twice as much of a real unit/incident list is visible at
+once without scrolling, and the map's visible centre strip is
+meaningfully larger despite the side panels staying permanently docked.
+Verified against the real engine: every control row's real content width
+measures well under the 640px design canvas, both docked panels still
+open by default and stay live, and a detail panel still layers correctly
+above them at the new geometry.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
