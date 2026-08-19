@@ -102,9 +102,19 @@ func _ready() -> void:
 	# thinness), not reduced to one line with no way to browse past lines.
 	_feed_scroll = ScrollContainer.new()
 	_feed_scroll.custom_minimum_size = Vector2(0, 52)
+	# Horizontal scroll left enabled (the default) let _feed_list collapse
+	# to its content-minimum width instead of filling the bar -- since
+	# every line here autowraps (which reports a near-zero minimum), that
+	# meant almost every message wrapped into a stack of tiny few-word
+	# fragments instead of reading as one line, confirmed by a real player
+	# report. Disabling it forces _feed_list to fill the bar's actual
+	# (now full-width) space, so a line only wraps if it's genuinely too
+	# long for that, not because the container never gave it room.
+	_feed_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	feed_panel.add_child(_feed_scroll)
 
 	_feed_list = VBoxContainer.new()
+	_feed_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_feed_scroll.add_child(_feed_list)
 
 	Simulation.core.incident_manager.incident_created.connect(_on_incident_created)
@@ -220,17 +230,17 @@ const UNIT_COLOR := Color(0.55, 0.9, 0.55)
 func _on_incident_created(incident_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident:
-		_append_feed("CONTROL to all units: new call, P%d %s, %s." % [incident.priority, incident.type_id, incident.location_id], CONTROL_COLOR, incident_id)
+		_append_feed("Dispatcher: New call -- a %s reported at %s, priority %d." % [_type_display(incident), incident.location_id, incident.priority], CONTROL_COLOR, incident_id)
 
 func _on_incident_escalated(incident_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident:
-		_append_feed("CONTROL to all units: urgent, %s escalating, now P%d." % [incident.type_id, incident.priority], CONTROL_COLOR, incident_id)
+		_append_feed("Dispatcher: Update -- the %s at %s is escalating, now priority %d." % [_type_display(incident), incident.location_id, incident.priority], CONTROL_COLOR, incident_id)
 
 func _on_incident_resolved(incident_id: String, outcome_id: String) -> void:
 	var incident: Incident = Simulation.core.incident_manager.get_incident(incident_id)
 	if incident:
-		_append_feed("CONTROL: %s resolved -- %s. Stand down." % [incident.type_id, outcome_id])
+		_append_feed("Dispatcher: %s at %s resolved -- %s. Stand down." % [_type_display(incident).capitalize(), incident.location_id, outcome_id])
 
 ## Player-driven dispatch (Commands.assign_unit_to_incident) and an actual
 ## unit arriving (IncidentManager.mark_unit_arrived) are the only two state
@@ -244,9 +254,18 @@ func _on_incident_state_changed(incident_id: String, old_state: GameEnums.Incide
 		return
 	var callsigns: String = _assigned_callsigns(incident)
 	if new_state == GameEnums.IncidentState.TRAVELLING and old_state != GameEnums.IncidentState.TRAVELLING:
-		_append_feed("CONTROL to %s: proceed to %s for P%d %s." % [callsigns, incident.location_id, incident.priority, incident.type_id], CONTROL_COLOR, incident_id)
+		_append_feed("Dispatcher: %s, please attend %s for a %s." % [callsigns, incident.location_id, _type_display(incident)], CONTROL_COLOR, incident_id)
+		_append_feed("%s: Copy, I'm en route." % callsigns, UNIT_COLOR, incident_id)
 	elif new_state == GameEnums.IncidentState.ON_SCENE and old_state == GameEnums.IncidentState.TRAVELLING:
-		_append_feed("%s to Control: on scene, %s." % [callsigns, incident.location_id], UNIT_COLOR, incident_id)
+		_append_feed("%s: On scene at %s now." % [callsigns, incident.location_id], UNIT_COLOR, incident_id)
+
+## The type factory's display_name reads naturally mid-sentence lower-
+## cased ("a shoplifting reported at..."); incident.type_id alone (the
+## previous wording) was a raw data id ("shoplifting"/"asb"), fine as a
+## label but not as something a dispatcher would actually say out loud.
+func _type_display(incident: Incident) -> String:
+	var type_def: IncidentTypeDefinition = Simulation.core.incident_manager.get_type_definition(incident.type_id)
+	return (type_def.display_name if type_def else incident.type_id).to_lower()
 
 func _assigned_callsigns(incident: Incident) -> String:
 	var callsigns: Array[String] = []

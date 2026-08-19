@@ -61,9 +61,18 @@ func _ready() -> void:
 
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(width, _panel_height())
+	# Horizontal scroll left enabled (Godot's ScrollContainer default) lets
+	# its child size itself down to its own content-minimum width instead
+	# of filling the container -- with autowrap labels inside (which report
+	# a near-zero minimum, since they *can* wrap to any width), that
+	# collapsed every row to a sliver and wrapped it into a stack of tiny
+	# fragments, plus a real horizontal scrollbar nothing needed. Disabling
+	# it forces the child to fill the panel's actual width instead.
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	panel.add_child(scroll)
 
 	content = VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 4)
 	scroll.add_child(content)
 

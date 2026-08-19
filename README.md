@@ -268,6 +268,40 @@ refreshing live on dispatch (from the `incident_state_changed` fix
 earlier in this pass) but wasn't saying so as plainly as the player asked
 for.
 
+Two of the player's next round of feedback traced back to the same root
+cause: the comms feed was wrapping every message into a stack of tiny
+few-word fragments instead of reading as one line, and the incidents list
+had grown a pointless horizontal scrollbar. Both come from Godot's
+`ScrollContainer` defaulting to horizontal scroll *enabled* -- which lets
+its child size itself down to its own content-minimum width instead of
+filling the container, and an autowrap-enabled `Label`/`Button` reports a
+near-zero minimum since it can wrap to any width, so the child collapsed
+to a sliver and everything inside it wrapped accordingly. Disabled
+(`horizontal_scroll_mode = SCROLL_MODE_DISABLED`) on both `SidePanelView`'s
+shared scroll and the comms bar's, which forces the content column to
+actually fill the panel's real width -- confirmed against the real engine
+that a full dispatch message now renders as one line in the comms bar with
+no stray scrollbar anywhere.
+
+The rest of that round, all in `IncidentsListPanelView`: sorted newest-
+first by `created_at_minute` instead of by priority (priority is still
+visible per-row via the accent colour/text); a dispatched incident
+(`assigned_unit_ids` non-empty) now gets a distinct blue accent instead of
+its priority colour, so "in hand" and "needs a decision" read apart at a
+glance; and a real timing bug meant a just-resolved incident didn't
+disappear immediately -- `IncidentManager.incident_resolved` fires *before*
+`active_incidents.erase()` actually runs (a few lines later, in a separate
+cleanup pass), so a naive refresh right off that signal still saw it in
+the dict. Fixed by filtering to `incident.is_open()` in `refresh()`
+instead of trusting the dict's timing.
+
+The comms feed itself got a full wording pass to match a player-supplied
+example ("Dispatcher: ...", "Unit 1: ..."), replacing the previous
+"CONTROL to Unit 1: proceed to..." radio-procedure phrasing with plainer
+dispatcher/unit dialogue, and a unit now acknowledges a dispatch
+("Copy, I'm en route.") as its own line rather than only speaking once, on
+arrival.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
