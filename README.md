@@ -426,6 +426,72 @@ flow from the original migration still works unchanged against the new
 grid town, and the town itself now reads as a real tightly-packed grid
 of streets and buildings instead of scattered dots.
 
+The player then sent a mockup of a proper SimCity-style isometric view and
+asked for two things: match that camera angle, and make the districts sit
+next to each other as one real town rather than the spread-out layout the
+3D migration inherited from the original 2D map's own scale. `Camera3D`
+now yaws 45 degrees in addition to its downward tilt (shallowed from -55
+to -32 degrees to match the mockup) -- streets run diagonally across the
+screen instead of a flat top-down grid. `map_view.gd`'s shared
+`camera_ground_offset()` generalises to a full yaw+pitch `Basis` so
+`main.gd` and `pan_camera_to` stay in lockstep regardless of rotation, the
+same pattern the pitch-only version used.
+
+The "districts are too far apart" complaint traced back to
+`City3DView.WORLD_SCALE`: measuring the real district boundary polygons
+(rather than guessing) showed each district's own footprint was already a
+sensible size once gridded, but `WORLD_SCALE` (carried over from the
+original 2D map's much larger coordinate space) put hundreds of 3D-units
+of empty ground between them, even though every `DistrictDefinition`
+already lists its real neighbours and genuinely borders them in the
+underlying data. Dropping `WORLD_SCALE` from 0.045 to 0.01 compresses the
+whole town (six districts, ~7650x9900 old-2D-units) into roughly a
+76x99 3D-unit span -- small enough that adjacent districts' grids now
+meet or nearly meet, reading as one continuous town. Since buildings AND
+roads both convert through this one shared scale factor, shrinking it
+kept everything in lockstep automatically, with no second coordinate
+system needed. The district block-fill's old fixed-size "cluster window"
+centred on each centroid (needed when a full-polygon fill would have
+meant tens of thousands of cells at the old scale) is gone too -- at the
+new scale a district's own real polygon is already an appropriately-sized
+area, so the grid just fills it directly.
+
+Retuning the camera's zoom bounds for the new scale surfaced a real
+"how big does camera.size 8 actually look" surprise: building-apparent
+size on screen depends only on `camera.size` and the viewport, never on
+`WORLD_SCALE` (a Kenney building is always ~1 native unit regardless of
+how far apart the world positions it), but *how much of a district* a
+fixed `camera.size` shows very much does, since a district's own
+footprint shrank along with everything else. The old default (8) that
+used to show "several buildings with room to breathe" now showed under
+half of a single district -- confirmed against a real Web export
+screenshot, then retuned by the same method (real screenshots, not
+formulas) against the actual compact town: 75 comfortably frames all six
+districts at once, so `MAX_CAMERA_SIZE` is set just above that (85) --
+capping zoom-out at roughly the whole town plus a small margin, replacing
+an old value (220) left over from the since-shrunk, far more spread-out
+town that let zooming out continue for many times longer than the town
+actually needed.
+
+Chasing what first looked like a *second* zoom bug (the default view
+occasionally looked far more zoomed-in or -out than intended depending on
+how the test reached the CONFIRM SHIFT PLAN button) turned up a real,
+if minor, quirk: wheel/drag input meant for the briefing screen's own
+`ScrollContainer` could still reach the game camera -- which already
+exists at that point, just isn't visible yet -- once that Control stopped
+consuming further scroll at its own top or bottom. `main.gd` now gates
+all camera gesture handling behind a `_gameplay_active` flag, true only
+between shift confirmation and the shift ending, so nothing on the
+briefing or debrief screen can ever touch the camera regardless of how a
+player interacts with those screens. Verified end-to-end against a real
+Web export, isolating scrollbar-handle drag (which cannot possibly
+interact with wheel/zoom handling) from wheel-based scrolling to confirm
+the fix: the default view now reliably shows all six districts as one
+connected town, MAX zoom-out stops at the town plus a small margin
+instead of a tiny cluster in a sea of empty green, MIN zoom-in still
+reads individual buildings and streets clearly, and pan/dispatch/panel
+flows are unaffected.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
