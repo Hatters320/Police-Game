@@ -71,6 +71,43 @@ extends Node3D
 ## district content by the same ratio -- it can't change how big a gap
 ## looks *relative to* the district next to it. Actually closing that gap
 ## needed a real per-district compaction pass instead.
+##
+## A further round reviewed the player's latest Google Drive uploads for two
+## specific asks: fill in bare/empty lots, and visibly bridge the gaps
+## between districts rather than leaving the inter-district connector as a
+## bare ribbon over open ground. The most useful find wasn't a new kit at
+## all: `data/models/roads/` and `data/models/nature/` already hold the
+## *complete* kenney_city-kit-roads and kenney_mini-forest kits from earlier
+## rounds, but only road-straight/road-crossroad and tree/tree-high were
+## ever actually used -- both directories were sitting on dozens of unused,
+## already-imported pieces (bridges, street lights, ground patches, rocks)
+## the whole time. Three genuinely new packs from the Drive review went in
+## alongside that: kenney_modular-buildings' pre-assembled
+## `building-sample-house-*`/`building-sample-tower-*` (single-mesh complete
+## buildings, unlike the kit's ~100 other raw wall/window/roof pieces, which
+## would need real modular assembly -- the same disproportionate-effort
+## judgement call the animated-characters kit's T-pose got earlier, so left
+## unused) and kenney_factory-kit's industrial clutter (crates, pipework, a
+## hopper, a warning marker) for WEST_INDUSTRIAL specifically. The true
+## kenney_nature-kit.zip the player also added (a much larger kit than
+## mini-forest) was reviewed too but couldn't be pulled through this
+## session's Drive tool -- it's 10.5MB against a hard 10MB per-file limit on
+## the download path available here; noted honestly in the README rather
+## than silently skipped.
+##
+## See OPEN_CELL_*_VARIANTS below for the bare-lot fill (nature-kit ground
+## cover plus mini-forest's own unused fence.glb for a garden boundary, or
+## factory-kit clutter for INDUSTRIAL) and _build_district_connectors() for
+## the district-bridging pass -- a real road-bridge.glb deck on
+## bridge-pillar-wide.glb supports, a spaced run of light-square street
+## lamps, and a gateway building/landmark near each end, placed along each
+## of the map's 8 real inter-district hub-to-hub edges (measured directly,
+## not guessed: one-off headless GDScript runs -- the same pattern
+## `_load_mesh()` + `get_aabb()` already uses elsewhere in this file --
+## measured every new asset's real AABB, and a script mirroring
+## _compute_district_layout() measured the 8 real edges' post-compaction
+## lengths at 18-37 3D-units, behind every offset and the light-spacing/
+## count constants below).
 
 ## 0.01 (down from an earlier 0.045) puts the whole town's ~7650x9900
 ## bounding box at roughly 76x99 3D-units -- small enough that adjacent
@@ -96,6 +133,11 @@ const SUBURBAN_DIR := "res://data/models/buildings_suburban/"
 const NATURE_DIR := "res://data/models/nature/"
 const ROADS_DIR := "res://data/models/roads/"
 const VEHICLES_DIR := "res://data/models/vehicles/"
+## kenney_modular-buildings' pre-assembled sample houses/towers and
+## kenney_factory-kit's industrial clutter -- the two genuinely new packs
+## from this round's Drive review, see the class doc comment above.
+const MODULAR_DIR := "res://data/models/buildings_modular/"
+const FACTORY_DIR := "res://data/models/factory/"
 
 ## A handful of named variants per land use for named Locations (bigger,
 ## more distinctive -- these are landmarks a player will tap on). Stored
@@ -196,11 +238,33 @@ const DISTRICT_RELAX_ITERATIONS := 300
 ## open cell reads as a gap you could walk or drive through without
 ## needing a separate mesh for it.
 const OPEN_CELL_CHANCE := 0.22
-## Of those open cells, the fraction that gets a standalone decorative
-## tree (kenney_mini-forest) so "open space" reads as real greenery in
-## some of those gaps, not just absence.
-const TREE_ON_OPEN_CHANCE := 0.25
-const NATURE_TREE_VARIANTS := ["tree", "tree-high"]
+## Of those open cells, the fraction that gets real ground-cover content
+## instead of staying bare -- originally just a tree (kenney_mini-forest),
+## widened this round to the rest of that same already-imported kit
+## (patch-grass/patch-dirt/plant/rocks-low/rocks-ramp/stones -- every piece
+## in data/models/nature/ except rocks-high, whose origin sits at its own
+## vertical centre rather than its base per a one-off AABB measurement, so
+## it would render half-sunk into the ground) so "open space" reads as
+## real varied ground cover, not a tree-or-nothing coin flip.
+const DECOR_ON_OPEN_CHANCE := 0.35
+const OPEN_CELL_NATURE_VARIANTS := [
+	NATURE_DIR + "tree", NATURE_DIR + "tree-high", NATURE_DIR + "patch-grass",
+	NATURE_DIR + "patch-dirt", NATURE_DIR + "plant", NATURE_DIR + "rocks-low",
+	NATURE_DIR + "rocks-ramp", NATURE_DIR + "stones",
+]
+## RESIDENTIAL/URBAN open cells also draw from mini-forest's own fence.glb
+## -- part of the same kit tree/tree-high already came from, but never
+## imported until this round -- so a garden gap sometimes reads as an
+## actual fenced plot boundary instead of just grass.
+const OPEN_CELL_GARDEN_VARIANTS := OPEN_CELL_NATURE_VARIANTS + [NATURE_DIR + "fence"]
+## INDUSTRIAL open cells draw from kenney_factory-kit instead of greenery --
+## a stack of crates, pipework, a hopper, or a hazard marker reads as a real
+## industrial yard gap, not a park bench next to a chimney.
+const OPEN_CELL_INDUSTRIAL_VARIANTS := [
+	FACTORY_DIR + "box-small", FACTORY_DIR + "box-large", FACTORY_DIR + "pipe-large",
+	FACTORY_DIR + "hopper-round", FACTORY_DIR + "structure-short", FACTORY_DIR + "cog-a",
+	FACTORY_DIR + "warning-orange",
+]
 
 const PEOPLE_DIR := "res://data/models/people/"
 
@@ -262,6 +326,27 @@ const ROAD_WIDTH := 0.7
 const ROAD_COLOR := Color(0.35, 0.35, 0.38)
 const GROUND_COLOR := Color(0.22, 0.34, 0.2)
 
+## _build_district_connectors() tuning. The 8 real inter-district hub-to-hub
+## edges (WestfordMapFactory._inter_district_roads()) measure 18-37
+## 3D-units end to end post-compaction (measured directly with a one-off
+## script mirroring _compute_district_layout(), not guessed) -- a 5-unit
+## light spacing lands 2-6 lamps per edge depending on its real length, via
+## the CONNECTOR_MIN/MAX_LIGHTS clamp. road-bridge.glb's own AABB (measured
+## the same one-off way) is a flat 1x1 footprint, the same as a GridMap
+## road cell, so BRIDGE_PILLAR_OFFSET (just outside that 0.5-unit half-width)
+## and CONNECTOR_LIGHT_OFFSET (roadside, clearly outside ROAD_WIDTH's own
+## 0.35-unit half-width) both derive from that measured footprint rather
+## than an arbitrary number. GATEWAY_OFFSET is wider again -- the largest
+## gateway building footprint measured (building-sample-house-c, 2.0x2.2)
+## needs roughly a full unit of clearance past the road edge to avoid
+## clipping into the carriageway.
+const CONNECTOR_LIGHT_SPACING := 5.0
+const CONNECTOR_MIN_LIGHTS := 2
+const CONNECTOR_MAX_LIGHTS := 6
+const CONNECTOR_LIGHT_OFFSET := 0.55
+const BRIDGE_PILLAR_OFFSET := 0.55
+const GATEWAY_OFFSET := 1.8
+
 var _world: WorldMapData
 var _mesh_cache: Dictionary = {} # path -> Mesh
 var _grid_map: GridMap
@@ -306,6 +391,7 @@ func build(world: WorldMapData) -> void:
 	_build_grid_map()
 	_build_named_buildings()
 	_build_district_blocks()
+	_build_district_connectors()
 	_build_traffic()
 	_build_pedestrians()
 
@@ -607,21 +693,154 @@ func _build_district_blocks() -> void:
 					_occupied_cells[cell] = true
 				elif rng.randf() < OPEN_CELL_CHANCE:
 					# Left as bare ground -- deliberately not marked
-					# occupied unless a tree lands here, so the
+					# occupied unless a decoration lands here, so the
 					# already-green ground plane shows through as open
 					# space between buildings (spec: "space out the
 					# individual buildings... doesn't feel so compact").
-					if decor_rng.randf() < TREE_ON_OPEN_CHANCE:
-						var tree_path: String = NATURE_DIR + NATURE_TREE_VARIANTS[decor_rng.randi() % NATURE_TREE_VARIANTS.size()] + ".glb"
-						var tree_item: int = _register_library_item(tree_path)
-						var tree_facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (decor_rng.randi() % 4) * PI * 0.5))
-						_grid_map.set_cell_item(grid_pos, tree_item, tree_facing)
+					if decor_rng.randf() < DECOR_ON_OPEN_CHANCE:
+						var open_variants: Array = _open_cell_variants_for(land_use)
+						var decor_path: String = open_variants[decor_rng.randi() % open_variants.size()] + ".glb"
+						var decor_item: int = _register_library_item(decor_path)
+						var decor_facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (decor_rng.randi() % 4) * PI * 0.5))
+						_grid_map.set_cell_item(grid_pos, decor_item, decor_facing)
 						_occupied_cells[cell] = true
 				else:
 					var item_id: int = item_ids[rng.randi() % item_ids.size()]
 					var facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (rng.randi() % 4) * PI * 0.5))
 					_grid_map.set_cell_item(grid_pos, item_id, facing)
 					_occupied_cells[cell] = true
+
+## Which decoration pool an open cell draws from -- greenery everywhere by
+## default, mini-forest's fence added for RESIDENTIAL/URBAN gardens,
+## factory-kit clutter instead of greenery for INDUSTRIAL yards.
+func _open_cell_variants_for(land_use: LandUse) -> Array:
+	match land_use:
+		LandUse.INDUSTRIAL:
+			return OPEN_CELL_INDUSTRIAL_VARIANTS
+		LandUse.RESIDENTIAL, LandUse.URBAN:
+			return OPEN_CELL_GARDEN_VARIANTS
+		_:
+			return OPEN_CELL_NATURE_VARIANTS
+
+## Dresses the inter-district arterial connectors built by _build_roads()
+## above -- that ribbon mesh renders the drivable surface, but a bare flat
+## strip crossing open ground between two districts read as an empty
+## stretch with a thin road down the middle, not a real "bridge the gap"
+## connection. Every inter-district edge (both endpoints belong to
+## different districts -- always exactly the 8 real hub-to-hub edges
+## WestfordMapFactory._inter_district_roads() defines, never a
+## within-district street) gets a road-bridge.glb deck on two
+## bridge-pillar-wide.glb supports at its midpoint, a spaced run of
+## light-square.glb street lamps along its length, and a gateway
+## building/landmark near each end -- all individually instanced Node3D
+## children (not GridMap cells), the same choice already made for named
+## Locations/RoadWalker actors and for the same reason: a small, bounded
+## count (8 edges x a handful of props each) where per-instance overhead is
+## fine, positioned at real continuous angles a grid can't represent anyway
+## since these edges are part of the deliberately non-grid-aligned arterial
+## network, not a district's own street lattice.
+func _build_district_connectors() -> void:
+	var node_by_id: Dictionary = {}
+	for node: RoadNode in _world.road_nodes:
+		node_by_id[node.id] = node.position
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = FILLER_SEED + 4
+
+	var connectors_root := Node3D.new()
+	connectors_root.name = "DistrictConnectors"
+	add_child(connectors_root)
+
+	for edge: RoadEdge in _world.road_edges:
+		var district_a: String = _node_district.get(edge.from_id, "")
+		var district_b: String = _node_district.get(edge.to_id, "")
+		if district_a == "" or district_b == "" or district_a == district_b:
+			continue
+		if not node_by_id.has(edge.from_id) or not node_by_id.has(edge.to_id):
+			continue
+		var a: Vector3 = _world_to_3d_in_district(node_by_id[edge.from_id], district_a)
+		var b: Vector3 = _world_to_3d_in_district(node_by_id[edge.to_id], district_b)
+		_dress_connector_edge(connectors_root, a, b, district_a, district_b, rng)
+
+func _dress_connector_edge(root: Node3D, a: Vector3, b: Vector3, district_a: String, district_b: String, rng: RandomNumberGenerator) -> void:
+	var length: float = a.distance_to(b)
+	if length < 0.01:
+		return
+	var dir: Vector3 = (b - a).normalized()
+	var side: Vector3 = dir.cross(Vector3.UP).normalized()
+	var mid: Vector3 = (a + b) * 0.5
+
+	var bridge_scene: PackedScene = load(ROADS_DIR + "road-bridge.glb")
+	if bridge_scene != null:
+		var bridge_inst: Node3D = bridge_scene.instantiate()
+		root.add_child(bridge_inst)
+		bridge_inst.position = mid
+		bridge_inst.look_at(mid + dir, Vector3.UP)
+
+	var pillar_scene: PackedScene = load(ROADS_DIR + "bridge-pillar-wide.glb")
+	if pillar_scene != null:
+		for lateral_sign in [-1.0, 1.0]:
+			var pillar_inst: Node3D = pillar_scene.instantiate()
+			root.add_child(pillar_inst)
+			pillar_inst.position = mid + side * (BRIDGE_PILLAR_OFFSET * lateral_sign)
+			pillar_inst.look_at(pillar_inst.position + dir, Vector3.UP)
+
+	var light_scene: PackedScene = load(ROADS_DIR + "light-square.glb")
+	if light_scene != null:
+		var light_count: int = clampi(roundi(length / CONNECTOR_LIGHT_SPACING) - 1, CONNECTOR_MIN_LIGHTS, CONNECTOR_MAX_LIGHTS)
+		for i in light_count:
+			var t: float = float(i + 1) / float(light_count + 1)
+			var lateral_sign: float = 1.0 if i % 2 == 0 else -1.0
+			var light_inst: Node3D = light_scene.instantiate()
+			root.add_child(light_inst)
+			light_inst.position = a.lerp(b, t) + side * (CONNECTOR_LIGHT_OFFSET * lateral_sign)
+			light_inst.look_at(light_inst.position + dir, Vector3.UP)
+
+	# One gateway landmark near each end -- district_a's own land use at the
+	# near end, district_b's at the far end, on opposite sides of the road
+	# -- so a crossing reads as a real transition from both directions
+	# instead of only ever dressing whichever district happens to be listed
+	# second in WestfordMapFactory._inter_district_roads() (town_centre is
+	# always listed first, so a far-end-only version never actually placed
+	# one of the URBAN tower variants at all -- caught by the scene-tree
+	# inspection below, not visually).
+	_place_gateway(root, a.lerp(b, 0.25) + side * GATEWAY_OFFSET, district_a, rng)
+	_place_gateway(root, a.lerp(b, 0.75) - side * GATEWAY_OFFSET, district_b, rng)
+
+func _place_gateway(root: Node3D, position: Vector3, district_id: String, rng: RandomNumberGenerator) -> void:
+	var gateway_path: String = _gateway_variant_for(district_id, rng)
+	var gateway_scene: PackedScene = load(gateway_path + ".glb")
+	if gateway_scene == null:
+		return
+	var gateway_inst: Node3D = gateway_scene.instantiate()
+	root.add_child(gateway_inst)
+	gateway_inst.position = position
+	gateway_inst.rotation.y = (rng.randi() % 4) * (PI * 0.5)
+
+## Which gateway landmark marks a crossing's entrance on district_id's side,
+## keyed off its own land use so an industrial crossing gets factory clutter
+## instead of a house -- kenney_modular-buildings' pre-assembled sample
+## buildings for URBAN/RESIDENTIAL/RURAL, kenney_factory-kit for INDUSTRIAL. Draws
+## from the connector's own seeded rng (not a hash of the district id) so
+## the two different edges arriving at the same district can still pick
+## different variants.
+func _gateway_variant_for(district_id: String, rng: RandomNumberGenerator) -> String:
+	var land_use: LandUse = _land_use_for_district(district_id)
+	var variants: Array
+	match land_use:
+		LandUse.INDUSTRIAL:
+			variants = [FACTORY_DIR + "structure-short", FACTORY_DIR + "hopper-round"]
+		LandUse.URBAN:
+			variants = [
+				MODULAR_DIR + "building-sample-tower-a", MODULAR_DIR + "building-sample-tower-b",
+				MODULAR_DIR + "building-sample-tower-c", MODULAR_DIR + "building-sample-tower-d",
+			]
+		_:
+			variants = [
+				MODULAR_DIR + "building-sample-house-a", MODULAR_DIR + "building-sample-house-b",
+				MODULAR_DIR + "building-sample-house-c",
+			]
+	return variants[rng.randi() % variants.size()]
 
 ## Builds the node_id -> 3D position / node_id -> Array[neighbour ids]
 ## lookups RoadWalker needs, from the same _world.road_nodes/road_edges the

@@ -650,6 +650,113 @@ each, not a global lighting drift) sitting exactly on road corridors --
 consistent with real objects moving along them. No single one of these
 was fully conclusive by itself; together they are.
 
+The player added another batch of Kenney packs to the shared Google Drive
+and asked for two specific things this round: fill in the town's bare/
+empty lots, and visibly bridge the gaps between districts rather than
+leaving the inter-district connector as a flat ribbon over open ground.
+Reviewing what was actually new turned up a genuine surprise: the two
+kits that mattered most weren't new uploads at all. `data/models/roads/`
+and `data/models/nature/` already held the *complete* kenney_city-kit-
+roads and kenney_mini-forest kits from earlier rounds -- every road prop,
+bridge, street light, ground patch, and rock Kenney ships in them -- but
+only road-straight/road-crossroad and tree/tree-high had ever actually
+been used. Dozens of already-imported, already-paid-for pieces (a real
+road-bridge + bridge-pillar-wide, light-square/light-curved street lamps,
+patch-grass/patch-dirt/plant/rocks-low/rocks-ramp/stones, mini-forest's
+own fence.glb) were sitting unused the whole time. Three genuinely new
+packs went in alongside that: kenney_modular-buildings' pre-assembled
+`building-sample-house-*`/`building-sample-tower-*` (single-mesh complete
+buildings, unlike the kit's ~100 other raw wall/window/roof pieces, which
+would need real modular assembly -- the same disproportionate-effort call
+the animated-characters kit's T-pose got a few rounds back, so left
+unused) and kenney_factory-kit's industrial clutter (crates, pipework, a
+hopper, a warning marker) for WEST_INDUSTRIAL specifically. The actual
+kenney_nature-kit.zip the player also added (a much larger kit than
+mini-forest) was reviewed too, but this session's Google Drive download
+tool caps individual files at 10MB and it's 10.5MB -- noted here rather
+than silently skipped; a future round with a working download path for it
+is the honest way to pick that back up.
+
+Bare lots (`City3DView.OPEN_CELL_CHANCE` cells) went from a tree-or-
+nothing coin flip to real ground-cover variety drawn from a per-land-use
+pool: greenery (tree/tree-high/patch-grass/patch-dirt/plant/rocks-low/
+rocks-ramp/stones) everywhere, mini-forest's fence.glb added for
+RESIDENTIAL/URBAN gardens, and factory-kit clutter *instead of* greenery
+for INDUSTRIAL yards. rocks-high was measured and deliberately left out
+of the pool -- its origin sits at its own vertical centre rather than its
+base, so it would render half-sunk into the ground; every other piece
+sits flush, confirmed the same way.
+
+District bridging is a new `City3DView._build_district_connectors()`
+pass over the map's 8 real inter-district hub-to-hub edges (Town Centre
+-> Northside/East Estate/West Industrial/South Residential, South
+Residential -> Rural Outskirts/East Estate, Northside -> West Industrial,
+East Estate -> Rural Outskirts -- `WestfordMapFactory._inter_district_
+roads()`), which post-compaction measure 18-37 3D-units end to end
+(measured directly, not guessed, mirroring `_compute_district_layout()`
+in a one-off headless run). Each edge gets a road-bridge.glb deck on two
+bridge-pillar-wide.glb supports at its midpoint, 2-6 light-square.glb
+street lamps spaced along its length depending on real edge length, and a
+gateway building/landmark near *each* end -- a sample house/tower for
+RESIDENTIAL/URBAN or factory clutter for INDUSTRIAL, keyed off that end's
+own land use. All of it is individually instanced (not GridMap cells),
+the same choice already made for named Locations and RoadWalker actors,
+for the same reason: a small, bounded count (8 edges, a handful of props
+each) where per-instance overhead is fine, at real continuous angles a
+grid can't represent anyway since these edges are the deliberately
+non-grid-aligned arterial network, not a district's own street lattice.
+
+The first version of the gateway placement had a real bug, caught by a
+headless scene-tree inspection rather than by eye: it only dressed the
+*far* end of each edge, and `_inter_district_roads()` always lists
+`town_centre` first -- so the only URBAN district in the game never once
+landed on the dressed end, and none of the four `building-sample-tower-*`
+variants imported for it were ever actually placed, despite compiling and
+running without error. Counting instances by scene path after a real
+`build()` run (8 road-bridge, 16 bridge-pillar-wide, 29 light-square, but
+zero tower variants among the 8 gateways) caught it directly. Fixed by
+dressing both ends -- district_a's own land use at the near end,
+district_b's at the far end -- which brought the count to 16 gateways
+using all four tower and three house variants plus both factory variants,
+confirmed by re-running the same inspection.
+
+That same headless check surfaced a second thing that looked like a bug
+at first but wasn't: every `look_at()` call in `_dress_connector_edge()`
+(and, it turned out, in the already-shipped `RoadWalker._apply_transform()`
+too) errors with "Node not inside tree" when run from a bare
+`SceneTree.-headless --script` entry point, because that harness never
+gives the tree a real `_ready()`-equivalent pass before `_init()`/
+`_initialize()` runs. Confirmed by reproducing the identical error against
+`_build_traffic()` -- code that has shipped and been screenshot-verified
+working for two rounds -- under the exact same harness: a pre-existing
+harness artifact, not a regression, so no code changed to fix it and the
+real running game (which adds `City3DView` to the tree before calling
+`build()`, per `main.gd`) never hits it.
+
+Verified against the real engine and a real Web export, not just
+compile checks: `godot4 --headless --script tests/run_shift_debug.gd`
+still runs a full shift cleanly; a `--check-only` parse and a full
+headless-editor reimport are both clean; the headless scene-tree
+inspection above confirms every new asset actually gets placed with the
+right counts. A real `godot4 --export-release "Web"` build, served
+locally and driven with Playwright against the pre-installed headless
+Chromium (SwiftShader software rendering, no real GPU in this sandbox --
+same caveat as every prior Web check in this file), booted with zero
+console errors, scrolled and confirmed a real shift briefing, and ran
+live play with incidents dispatching correctly. A cropped/upscaled
+full-town screenshot and a closer in-browser zoom both show the new
+content actually rendering -- a two-tone `building-sample-tower` standing
+out clearly as a gateway landmark, orange-tan factory clutter near an
+industrial edge, and richer tree/rock variety in open lots -- corroborating
+the scene-tree counts rather than replacing them. Frame time was sampled
+via `requestAnimationFrame` for 300 real frames on the same before/after
+Web builds in the same sandbox: 847.6ms/frame before this round's changes
+vs 835.3ms/frame after -- no regression (if anything a touch faster,
+within run-to-run noise) -- though, as with every prior Web performance
+note in this file, the absolute numbers themselves (~1.2 "fps") reflect
+this sandbox's GPU-less software rendering fallback, not a real device;
+only the same-sandbox relative comparison is a valid signal here.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
