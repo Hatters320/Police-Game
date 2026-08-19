@@ -104,16 +104,21 @@ var _selected_unit_id: String = ""
 var _current_overlay: OverlayType = OverlayType.NONE
 var _overlay_noise: Dictionary = {} # district_id -> float
 var _overlay_tick_counter: int = 0
-## Fixed downward tilt the 3D camera is created with in main.gd, and the
-## fixed distance back along that tilt from whatever ground point it's
-## focused on. Both are constant for the camera's whole lifetime (only
-## the ground focus point and orthogonal size/zoom ever change), so the
-## offset from a focus point to the actual camera position is always
-## this same vector -- one source of truth shared by main.gd (which sets
-## the camera's rotation and does per-frame panning) and pan_camera_to
-## below (which needs to reproduce the same math for the list-panel
-## "jump to this location" shortcut).
-const CAMERA_PITCH_DEG := -55.0
+## Fixed yaw+pitch the 3D camera is created with in main.gd, and the fixed
+## distance back along that facing from whatever ground point it's focused
+## on. All three are constant for the camera's whole lifetime (only the
+## ground focus point and orthogonal size/zoom ever change), so the offset
+## from a focus point to the actual camera position is always the same
+## vector -- one source of truth shared by main.gd (which sets the
+## camera's rotation and does per-frame panning) and pan_camera_to below
+## (which needs to reproduce the same math for the list-panel "jump to
+## this location" shortcut). 45 degrees of yaw plus a shallow ~32 degree
+## pitch is a classic city-builder dimetric/isometric look (streets run
+## diagonally across the screen rather than straight up/down) -- matches
+## a mockup the player supplied directly, replacing the original
+## steeper, non-rotated top-down-ish tilt from the first 3D pass.
+const CAMERA_YAW_DEG := 45.0
+const CAMERA_PITCH_DEG := -32.0
 const CAMERA_DISTANCE := 34.0
 
 var _camera: Camera3D
@@ -149,11 +154,18 @@ func close_other_panels(except: Node = null) -> void:
 func set_camera(camera: Camera3D) -> void:
 	_camera = camera
 
+## The camera's fixed orientation as a Basis -- same Euler order Node3D's
+## own `rotation` property uses internally (YXZ), so this always matches
+## camera.global_transform.basis exactly for whatever rotation main.gd
+## sets from CAMERA_YAW_DEG/CAMERA_PITCH_DEG.
+static func camera_basis() -> Basis:
+	return Basis.from_euler(Vector3(deg_to_rad(CAMERA_PITCH_DEG), deg_to_rad(CAMERA_YAW_DEG), 0.0))
+
 ## The constant offset from a ground focus point to the camera position,
-## given the fixed CAMERA_PITCH_DEG tilt and CAMERA_DISTANCE back-off --
-## see the doc comment on those consts above.
+## given the fixed yaw/pitch tilt and CAMERA_DISTANCE back-off -- see the
+## doc comment on those consts above.
 static func camera_ground_offset() -> Vector3:
-	return Basis(Vector3.RIGHT, deg_to_rad(CAMERA_PITCH_DEG)).z * CAMERA_DISTANCE
+	return camera_basis().z * CAMERA_DISTANCE
 
 ## Recentres the map on a world position without changing zoom -- used by
 ## the resources/incidents list panels (spec: selecting an entry "should

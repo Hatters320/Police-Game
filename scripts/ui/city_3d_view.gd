@@ -5,9 +5,21 @@ extends Node3D
 ## from the same WorldMapData the existing 2D MapView already reads --
 ## zero changes to district/road/location/incident data or gameplay logic,
 ## this is purely a new presentation layer. Positions are converted from
-## the simulation's original 2D "world unit" coordinate space (districts
-## spanning roughly +/-3000-4800 units) into a much smaller 3D scene via
-## WORLD_SCALE, matching Kenney's ~1-2 unit-per-building real-world scale.
+## the simulation's original 2D "world unit" coordinate space (the whole
+## town's bounding box measures roughly 7650x9900 units) into a much
+## smaller 3D scene via WORLD_SCALE, matching Kenney's ~1-unit-per-building
+## real-world scale. WORLD_SCALE is deliberately small enough that the
+## whole town's districts -- which really do border each other, per each
+## DistrictDefinition's own neighbour_district_ids -- end up close enough
+## together to read as one continuous town instead of separate islands
+## with empty gaps between them, which is what an earlier, larger
+## WORLD_SCALE produced (each district itself was appropriately dense, but
+## sat in the middle of a mostly-empty district-sized polygon, and
+## districts were far enough apart in the original 2D data that nothing
+## bridged the gaps but the thin arterial road ribbon). Because every
+## position -- buildings AND roads -- goes through this one shared scale
+## factor, shrinking it keeps roads and buildings in lockstep automatically
+## rather than needing a second coordinate system just for compactness.
 ##
 ## The existing RoadGraph (organic, non-grid-aligned, procedurally
 ## generated for the old 2D top-down view) still becomes one combined
@@ -34,7 +46,13 @@ extends Node3D
 ## else, and its cell reserved so the block fill doesn't double-place one
 ## on top of it.
 
-const WORLD_SCALE := 0.045
+## 0.01 (down from an earlier 0.045) puts the whole town's ~7650x9900
+## bounding box at roughly 76x99 3D-units -- small enough that adjacent
+## districts' own building clusters actually meet or nearly meet, rather
+## than sitting in the middle of their own district-sized empty polygon.
+## Measured directly against WestfordMapFactory's real district boundary
+## polygons (bbox/area per district) before picking this, not guessed.
+const WORLD_SCALE := 0.01
 
 enum LandUse { URBAN, RESIDENTIAL, INDUSTRIAL, RURAL }
 const DISTRICT_LAND_USE := {
@@ -99,25 +117,12 @@ const BLOCK_SIZE_BY_LAND_USE := {
 	LandUse.INDUSTRIAL: 3,
 	LandUse.RURAL: 6,
 }
-## Grid cluster side length in cells, centred on each district's centroid
-## -- NOT the whole district polygon (which spans thousands of world
-## units; gridding all of it would mean tens of thousands of cells for no
-## visual gain, since a real town isn't wall-to-wall buildings across its
-## entire administrative area either). Roughly proportional to the old
-## per-district filler counts, scaled up substantially -- but pulled back
-## once already from a first pass (town centre 26, ~300+ buildings) that
-## measured a real ~3x frame-time regression against a real Web export
-## (confirmed via requestAnimationFrame sampling before/after, same
-## sandbox both times so the comparison is apples-to-apples even though
-## the sandbox itself has no GPU and isn't a real-device number). These
-## smaller sizes still land at several times the old flat-scatter
-## version's per-district counts (36 at town centre, down to single
-## digits at rural_outskirts).
-const CLUSTER_SIZE_BY_DISTRICT := {
-	"town_centre": 18, "northside": 14, "east_estate": 14,
-	"south_residential": 15, "west_industrial": 13, "rural_outskirts": 9,
-}
-const DEFAULT_CLUSTER_SIZE := 11
+## No separate "cluster size" any more -- at WORLD_SCALE 0.01 a district's
+## own real polygon (18-32 3D-units across, measured directly rather than
+## the ~1800-3200 *old-2D-unit* figures that used to make a full-polygon
+## fill mean tens of thousands of cells) is already close to the size a
+## hand-picked cluster used to be, so _build_district_blocks below just
+## fills each district's own real boundary polygon directly.
 
 const ROAD_WIDTH := 0.55
 const ROAD_COLOR := Color(0.35, 0.35, 0.38)
@@ -292,18 +297,19 @@ func _build_named_buildings() -> void:
 		inst.rotation.y = (hash(location.id + "r") % 4) * (PI * 0.5)
 		add_child(inst)
 
-## The actual grid: for each district, a street lattice (crossroads where
-## a "street row" meets a "street column", straight segments elsewhere
-## along either) carves a fixed-size cluster of cells centred on the
-## district's centroid into blocks, and every remaining cell whose centre
+## The actual grid: for each district, every cell in its own real
+## bounding box (at WORLD_SCALE 0.01 this is now small -- 18 to 32
+## 3D-units across -- not the "tens of thousands of cells" a full-polygon
+## fill would have meant at the old, larger WORLD_SCALE) whose centre
 ## falls inside the real district polygon (Geometry2D.is_point_in_polygon
-## against the actual boundary, not a circle approximation like the old
-## scatter used) gets a building. Every cell this places, road or
-## building, goes through the single shared GridMap -- that's the whole
-## performance case for using one: it batches per unique mesh internally
-## regardless of how many thousand cells are placed, so cell count here
-## isn't a draw-call multiplier the way individual scene instances would
-## be.
+## against the actual boundary, not a circle approximation like the
+## original scatter used) gets either a road tile, if it's on a street
+## row/column of a regular lattice spaced by the land use's block size, or
+## a building otherwise. Every cell this places, road or building, goes
+## through the single shared GridMap -- that's the whole performance case
+## for using one: it batches per unique mesh internally regardless of how
+## many thousand cells are placed, so cell count here isn't a draw-call
+## multiplier the way individual scene instances would be.
 func _build_district_blocks() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = FILLER_SEED
@@ -320,21 +326,26 @@ func _build_district_blocks() -> void:
 
 		var block_size: int = BLOCK_SIZE_BY_LAND_USE.get(land_use, 3)
 		var street_period: int = block_size + 1
-		var cluster_size: int = CLUSTER_SIZE_BY_DISTRICT.get(district.id, DEFAULT_CLUSTER_SIZE)
-		var center_cell: Vector2i = _world_to_cell(world_to_3d(_polygon_centroid(district.boundary)))
-		var half: int = cluster_size / 2
 
-		for di in range(-half, half + 1):
-			for dj in range(-half, half + 1):
-				var cell := Vector2i(center_cell.x + di, center_cell.y + dj)
+		var min_pos := Vector2.INF
+		var max_pos := -Vector2.INF
+		for point in district.boundary:
+			min_pos = min_pos.min(point)
+			max_pos = max_pos.max(point)
+		var min_cell: Vector2i = _world_to_cell(world_to_3d(min_pos))
+		var max_cell: Vector2i = _world_to_cell(world_to_3d(max_pos))
+
+		for cx in range(min_cell.x, max_cell.x + 1):
+			for cy in range(min_cell.y, max_cell.y + 1):
+				var cell := Vector2i(cx, cy)
 				if _occupied_cells.has(cell):
 					continue
 				var cell_center_2d: Vector2 = Vector2(_cell_center_3d(cell).x, _cell_center_3d(cell).z) / WORLD_SCALE
 				if not Geometry2D.is_point_in_polygon(cell_center_2d, district.boundary):
 					continue
 
-				var is_street_col: bool = posmod(di, street_period) == 0
-				var is_street_row: bool = posmod(dj, street_period) == 0
+				var is_street_col: bool = posmod(cx, street_period) == 0
+				var is_street_row: bool = posmod(cy, street_period) == 0
 				var grid_pos := Vector3i(cell.x, 0, cell.y)
 
 				if is_street_col and is_street_row:

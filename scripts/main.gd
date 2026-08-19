@@ -40,17 +40,26 @@ const ZOOM_STEP_OUT := 0.8
 ## world-units (KEEP_HEIGHT), the inverse sense of the old Camera2D.zoom
 ## (bigger size = more of the world visible = more zoomed OUT, whereas
 ## bigger zoom used to mean more zoomed IN) -- see _zoom_by and
-## _effective_zoom_2d below for the conversion. Starting points only;
-## like the old MIN_ZOOM/MAX_ZOOM these were tuned by feel against the
-## town's rough footprint (bounding box x:-3800..3850, y:-3500..6400,
-## i.e. ~344x445 3D units at City3DView.WORLD_SCALE) and will likely need
-## a real-device pass same as the 2D constants did.
-## Confirmed against a real Web export screenshot: Kenney's buildings read
-## as clearly recognizable low-poly shapes around size 2-3 (a block or two
-## fills the screen), shrink to indistinguishable dots by size ~20+. 3/220
-## bracket "tight street-level" through "roughly whole-town fit".
+## _effective_zoom_2d below for the conversion.
+## Building-apparent-size on screen depends only on camera.size and the
+## viewport, never on WORLD_SCALE (a Kenney building is always ~1 native
+## unit regardless of how far apart the world positions it into) -- but
+## "how much of one district a fixed camera.size shows" very much does,
+## since a district's own footprint is now only 18-32 3D-units across
+## (WORLD_SCALE 0.01) instead of the hundreds-of-units span it used to
+## have. The old tuning (8/220, in a comment further up) never accounted
+## for that: confirmed against a real Web export screenshot that camera.
+## size 8 now shows less than half of a single district, not "several
+## buildings with room to breathe" as intended. Retuned by the same
+## method -- real screenshots, not formulas -- against the actual compact
+## town: 75 comfortably frames all six districts at once (so this is also
+## MAX_CAMERA_SIZE's basis, with a little headroom, not the old 220 left
+## over from the since-shrunk, far more spread-out town, which let
+## zooming out continue many times longer than the actual town needed).
+## MIN_CAMERA_SIZE (individual buildings read clearly around size 2-3) is
+## untouched by any of this, since it was never about world extent.
 const MIN_CAMERA_SIZE := 3.0 # most zoomed in
-const MAX_CAMERA_SIZE := 220.0 # most zoomed out, roughly whole-town fit
+const MAX_CAMERA_SIZE := 85.0 # most zoomed out -- the whole town plus a little margin
 
 ## A press/touch that moves less than this many screen pixels before
 ## release is a tap (dispatch to MapView.handle_tap); anything past it is
@@ -58,6 +67,15 @@ const MAX_CAMERA_SIZE := 220.0 # most zoomed out, roughly whole-town fit
 ## coexist on the same pointer down/up sequence.
 const TAP_DRAG_THRESHOLD := 14.0
 
+## Gates all camera gesture handling below to the actual play screen --
+## true only between _on_briefing_confirmed and the shift ending. Without
+## this, wheel/drag input meant for the briefing/debrief screen's own
+## ScrollContainer can still reach the (already-existing, just not
+## visible yet) game camera once that Control stops consuming further
+## scroll at its own top/bottom -- confirmed via a real Web export test
+## that repeatedly scrolling the briefing all the way down measurably
+## changed the camera's zoom before the shift had even started.
+var _gameplay_active: bool = false
 var _pointer_down: bool = false
 var _pointer_start_screen: Vector2 = Vector2.ZERO
 var _pointer_dragged: bool = false
@@ -121,28 +139,22 @@ func _ready() -> void:
 
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	# Fixed downward tilt, never changed after this -- MapView.CAMERA_PITCH_DEG
-	# /CAMERA_DISTANCE are the single source of truth for this offset (see
-	# map_view.gd's doc comment on those consts), since pan_camera_to there
-	# needs to reproduce the same math for the list-panel "jump to this
-	# location" shortcut.
-	camera.rotation = Vector3(deg_to_rad(MapView.CAMERA_PITCH_DEG), 0, 0)
+	# Fixed yaw+pitch, never changed after this -- MapView.CAMERA_YAW_DEG/
+	# CAMERA_PITCH_DEG/CAMERA_DISTANCE are the single source of truth for
+	# this offset (see map_view.gd's doc comment on those consts), since
+	# pan_camera_to there needs to reproduce the same math for the
+	# list-panel "jump to this location" shortcut.
+	camera.rotation = Vector3(deg_to_rad(MapView.CAMERA_PITCH_DEG), deg_to_rad(MapView.CAMERA_YAW_DEG), 0.0)
 	# Starts centred on Town Centre / the police station (both sit at the
-	# world origin), same as the old 2D default's intent -- close enough to
-	# actually read buildings/unit markers, not a whole-town fit. Zoom out
-	# via scroll/the HUD's -/+ buttons to see the wider town from here.
-	# Kenney's buildings measure roughly 1 3D-unit across (see City3DView's
-	# doc comment on NAMED_BUILDING_VARIANTS) -- 22 keeps several of them
-	# individually readable rather than reduced to single pixels, confirmed
-	# against a real Web export screenshot (buildings at size 90 rendered as
-	# indistinguishable dots).
-	# Kenney's buildings read as clearly recognizable low-poly shapes around
-	# size 2-3 (confirmed against a real Web export screenshot); 8 backs off
-	# from that a bit further so a few blocks/roads are visible at once
-	# rather than a single tight street-level view, matching the old 2D
-	# default's "close enough to read buildings" intent without being
-	# claustrophobic. Zoom out via scroll/the HUD's -/+ buttons from here.
-	camera.size = 8.0
+	# world origin), zoomed to show the whole compact town at once (all
+	# six districts, per the player's own request that the default view
+	# shouldn't need zooming out any further than that) -- confirmed
+	# against a real Web export screenshot, not derived from a formula
+	# (see MAX_CAMERA_SIZE's comment above for why: "how much of the town
+	# a given size shows" depends on the town's actual real footprint in a
+	# way a formula would need to duplicate exactly). Zoom in via scroll/
+	# the HUD's -/+ buttons to read individual buildings from here.
+	camera.size = 75.0
 	camera.position = MapView.camera_ground_offset()
 	add_child(camera)
 	camera.make_current()
@@ -217,6 +229,8 @@ func _ready() -> void:
 ## a pan" and "this press was a marker tap" -- splitting that across two
 ## nodes listening independently would double-handle every input.
 func _unhandled_input(event: InputEvent) -> void:
+	if not _gameplay_active:
+		return
 	if event is InputEventMouseButton:
 		if _use_touch_events:
 			return # real touch drives this device; ignore the emulated echo
@@ -362,6 +376,7 @@ func _pan_by_screen_delta(relative: Vector2) -> void:
 	camera.position += ground_forward * (relative.y * world_units_per_px / foreshortening)
 
 func _begin_briefing(shift_number: int) -> void:
+	_gameplay_active = false
 	var roster: Array[Officer] = OfficerFactory.build_shift_roster()
 	Simulation.core.prepare_shift(shift_number, SHIFT_START_MINUTE, SHIFT_DURATION_MINUTES, roster)
 	map_view.refresh_units()
@@ -380,6 +395,7 @@ func _begin_briefing(shift_number: int) -> void:
 	_briefing_view.confirmed.connect(_on_briefing_confirmed)
 
 func _on_briefing_confirmed() -> void:
+	_gameplay_active = true
 	_briefing_view.queue_free()
 	_briefing_view = null
 	hud_view.show()
@@ -394,6 +410,7 @@ func _on_briefing_confirmed() -> void:
 	incidents_list_panel.open()
 
 func _on_shift_ended(summary: Dictionary) -> void:
+	_gameplay_active = false
 	hud_view.hide()
 	incident_panel.close()
 	unit_panel.close()
