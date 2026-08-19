@@ -856,6 +856,89 @@ one-time scene-build cost, not something that runs per rendered frame.
 Reported honestly with the same caveat as always -- this sandbox has no
 real GPU, so only the same-sandbox relative comparison means anything.
 
+The player then asked for something bigger than another bug-fix pass:
+fill the ground that's still just empty between/around the six districts
+with new roads, buildings, green spaces, water features, and trees, "be
+creative," and one hard rule -- every road has to actually join up
+somewhere, no dead ends. A new `City3DView._build_infill()` fills that
+space with a lower-density extension of the exact same street-lattice
+mechanism every district's own interior already used -- which is what
+makes "no dead ends" a property of the mechanism rather than something
+that needed its own algorithm: every interior cell of a regular lattice
+is a 2-4-way junction by construction, the same reason no district had
+ever produced a dangling stub road. Infill's own street cells write into
+the same shared cell dictionary a district's streets already populate, so
+the existing orthogonal-adjacency walk-graph code links the two together
+automatically wherever they happen to be neighbours -- no separate
+stitching pass, and RoadWalker traffic gets the new roads for free. Two
+water features went in the same pass: one river, laid out as a real
+3-point polyline across the infill area and reserved as a cell band kept
+clear of buildings, with the actual visible water a SurfaceTool ribbon
+along the same line and any street lattice road that crosses it swapped
+for a real `road-bridge.glb` GridMap tile instead of stopping dead at the
+bank; and a small round lake sat inside one of four dedicated
+tree-covered park zones. Building/decoration flavour comes from each
+infill cell's nearest real district by centroid distance, so infill next
+to WEST_INDUSTRIAL reads industrial and infill next to a residential
+cluster reads residential, instead of one uniform style dropped in
+everywhere. Verified headless: a scene-tree connectivity check found the
+whole walk graph (street cells plus infill) forms exactly one connected
+component with zero isolated nodes.
+
+Deploying that build drew a sharper follow-up, and it was right: "just
+separate clumps of assets placed on the map... none of them join or flow
+together... we still have Claude's original old road system hidden
+underneath it all." It traced to something real and structural, not a
+matter of degree: `_build_roads()`'s diagonal SurfaceTool ribbon -- the
+original 2D RoadGraph's own visual, kept since the very first 3D
+migration as "the inter-district arterial network" -- was still
+rendering as a completely separate road system from the GridMap lattice
+every district and infill cell actually used, non-grid-aligned, cutting
+across the real streets at whatever angle the underlying 2D data
+happened to produce, with the hub-to-hub bridge/lights/gateway dressing
+from an earlier round still riding along it. Two independent road
+systems that never shared a coordinate space, in the same scene, is
+exactly what "separate clumps that don't flow together" looks like.
+Retired both entirely -- the ribbon and the whole hub-to-hub connector
+dressing -- once a headless connectivity check confirmed
+`_build_infill()`'s own grid stitching already links every district into
+one town-wide network on its own, with *zero* connectivity loss either
+way (1686/1686 nodes in one component, identical result with or without
+the old hub-pseudo-node linking the walk graph used to need). The
+gateway buildings' assets weren't wasted: folded into a `LANDMARK_VARIANTS`
+pool instead, an occasional plain addition to a district/infill cell's
+regular filler-building pool, so they still show up in town -- always on
+a real GridMap cell with a real connected road on every side, instead of
+floating over whatever ground happened to sit under an old diagonal line.
+
+That first infill build also measured a real, not-noise frame-time
+regression -- 869ms/frame before vs 1735ms/frame after, roughly 2x, on
+the same before/after Web-export sandbox comparison this project always
+uses. Traced directly to cell count, not a per-frame algorithmic cost:
+the GridMap went from 1846 used cells to 4570. `INFILL_OPEN_CELL_CHANCE`/
+`INFILL_DECOR_ON_OPEN_CHANCE` (0.5/0.55 initially) were retuned to 0.85/
+0.2 -- deliberately not touched: the street lattice itself, so every
+district's real connectivity is exactly as dense either way, only how
+many of the *remaining* cells get an actual building/decoration mesh
+placed on them changed (GridMap cells used: 4570 -> 3502). Re-measured
+after: 875ms/frame before vs 1127ms/frame after, ~29% -- a real,
+explainable cost for a town whose actual built content genuinely grew,
+not something to chase away entirely, and consistent with this project's
+own precedent (the suburban houses' more detailed geometry, a few rounds
+back, was "the real content upgrade the player actually asked for, not
+something to trade away"). The lower density also reads better, not just
+faster: the road grid itself is far more legible in a real screenshot at
+this density than the original's denser infill was.
+
+Verified against the real engine and a real Web export throughout:
+headless parse/reimport/shift-harness all clean at every stage, the
+connectivity check re-confirmed after every retune, a real
+`godot4 --export-release "Web"` build served and driven with Playwright
+shows zero console errors and the whole town rendering as one continuous
+place in a real screenshot -- a winding river with a road crossing it,
+one legible grid of streets spanning district cores and the lighter
+infill fringe alike, no visible seam or second road system anywhere.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a

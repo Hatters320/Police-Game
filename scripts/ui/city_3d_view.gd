@@ -22,10 +22,13 @@ extends Node3D
 ## rather than needing a second coordinate system just for compactness.
 ##
 ## The existing RoadGraph (organic, non-grid-aligned, procedurally
-## generated for the old 2D top-down view) still becomes one combined
-## ribbon mesh via SurfaceTool -- kept as the visible inter-district
-## arterial network, since it's real gameplay-relevant connectivity
-## between district hubs that a real regenerated grid would risk losing.
+## generated for the old 2D top-down view) originally became one combined
+## ribbon mesh via SurfaceTool here too -- the visible inter-district
+## arterial network, at the time real gameplay-relevant connectivity
+## between district hubs a regenerated grid would otherwise have risked
+## losing. A much later round retired that ribbon entirely once
+## _build_infill() made it redundant -- see that round's own paragraph
+## near the end of this comment for why.
 ##
 ## Within each district, though, buildings are laid out on a real grid
 ## instead of scattered: Kenney's building AND road tiles measure exactly
@@ -97,17 +100,61 @@ extends Node3D
 ##
 ## See OPEN_CELL_*_VARIANTS below for the bare-lot fill (nature-kit ground
 ## cover plus mini-forest's own unused fence.glb for a garden boundary, or
-## factory-kit clutter for INDUSTRIAL) and _build_district_connectors() for
-## the district-bridging pass -- a real road-bridge.glb deck on
+## factory-kit clutter for INDUSTRIAL). That same round also added a
+## _build_district_connectors() pass dressing each of the map's 8 real
+## inter-district hub-to-hub edges with a road-bridge.glb deck on
 ## bridge-pillar-wide.glb supports, a spaced run of light-square street
-## lamps, and a gateway building/landmark near each end, placed along each
-## of the map's 8 real inter-district hub-to-hub edges (measured directly,
-## not guessed: one-off headless GDScript runs -- the same pattern
-## `_load_mesh()` + `get_aabb()` already uses elsewhere in this file --
-## measured every new asset's real AABB, and a script mirroring
-## _compute_district_layout() measured the 8 real edges' post-compaction
-## lengths at 18-37 3D-units, behind every offset and the light-spacing/
-## count constants below).
+## lamps, and a gateway building/landmark near each end -- since retired
+## entirely; see the later infill/road-unification paragraph below for why.
+##
+## Real playtesting on that build reported cars/pedestrians reading as
+## close to building-sized and driving/walking straight through buildings
+## (the latter because RoadWalker still followed the original gameplay
+## RoadGraph, never aligned to the finer GridMap street lattice actually
+## rendered), plus every building of a given shape sharing one identical
+## colour. All three fixed: CAR_SCALE/PERSON_SCALE restored to the
+## strict, proportionally-correct figures an earlier round had already
+## derived and shipped bigger than for legibility (see those constants'
+## own doc comments for the real measured numbers); _build_walk_graph()
+## rebuilt from the real placed street cells instead (see its own doc
+## comment for the debugging detour that verifying this took); and a
+## small BUILDING_TINTS palette applied as a tinted-MeshLibrary-item system
+## for filler buildings, per-instance material override for individually
+## instanced ones.
+##
+## The round after that was the big one: the player asked for the empty
+## ground between/around the six districts to be filled with new roads,
+## buildings, green spaces, and water, all connected with no dead ends,
+## reading as one real SimCity-style town. _build_infill() does exactly
+## that -- see its own doc comment for the full design (a lower-density
+## extension of the same street-lattice mechanism every district's own
+## interior already used, park zones, a river with real road-bridge
+## crossings, a lake). But a first deploy of that work drew a sharper
+## follow-up: "just separate clumps... none of them join or flow
+## together... the old road system hidden underneath it all" -- and that
+## was real. `_build_roads()`'s diagonal SurfaceTool ribbon (the original
+## RoadGraph's own visual, kept as "the arterial network" ever since the
+## first 3D migration, described further up this comment) was still
+## rendering as a completely separate road system from the GridMap
+## lattice every district and infill cell actually use -- non-grid-
+## aligned, cutting across the lattice at whatever angle the underlying
+## 2D data happened to produce, with the hub-to-hub bridge/lights/gateway
+## dressing riding along it. Two independent road systems in the same
+## scene, never sharing a coordinate space, is exactly what "separate
+## clumps that don't flow together" looks like. Retired both entirely --
+## `_build_roads()`/`_add_road_quad()` and the whole hub-to-hub connector
+## dressing (`_build_district_connectors()`, `_dress_connector_edge()`,
+## `_place_gateway()`, `_gateway_variant_for()`) -- once a headless
+## connectivity check confirmed _build_infill()'s own grid stitching
+## already links every district into one town-wide network on its own,
+## with zero loss (1686/1686 nodes in one component, same result with or
+## without the old hub-pseudo-node linking _build_walk_graph() used to
+## need). The gateway buildings' assets weren't wasted -- folded into
+## LANDMARK_VARIANTS, an occasional plain (untinted, they already carry
+## their own distinctive look) addition to a district/infill cell's
+## regular filler pool, so they still show up in town, always on a real
+## GridMap cell with a real connected road on every side instead of
+## floating over whatever ground happened to be under an old diagonal line.
 
 ## 0.01 (down from an earlier 0.045) puts the whole town's ~7650x9900
 ## bounding box at roughly 76x99 3D-units -- small enough that adjacent
@@ -343,30 +390,66 @@ const PERSON_SPEED := 0.9
 ## down the middle of the carriageway cars use.
 const PERSON_LATERAL_OFFSET := 0.32
 
-const ROAD_WIDTH := 0.7
-const ROAD_COLOR := Color(0.35, 0.35, 0.38)
 const GROUND_COLOR := Color(0.22, 0.34, 0.2)
 
-## _build_district_connectors() tuning. The 8 real inter-district hub-to-hub
-## edges (WestfordMapFactory._inter_district_roads()) measure 18-37
-## 3D-units end to end post-compaction (measured directly with a one-off
-## script mirroring _compute_district_layout(), not guessed) -- a 5-unit
-## light spacing lands 2-6 lamps per edge depending on its real length, via
-## the CONNECTOR_MIN/MAX_LIGHTS clamp. road-bridge.glb's own AABB (measured
-## the same one-off way) is a flat 1x1 footprint, the same as a GridMap
-## road cell, so BRIDGE_PILLAR_OFFSET (just outside that 0.5-unit half-width)
-## and CONNECTOR_LIGHT_OFFSET (roadside, clearly outside ROAD_WIDTH's own
-## 0.35-unit half-width) both derive from that measured footprint rather
-## than an arbitrary number. GATEWAY_OFFSET is wider again -- the largest
-## gateway building footprint measured (building-sample-house-c, 2.0x2.2)
-## needs roughly a full unit of clearance past the road edge to avoid
-## clipping into the carriageway.
-const CONNECTOR_LIGHT_SPACING := 5.0
-const CONNECTOR_MIN_LIGHTS := 2
-const CONNECTOR_MAX_LIGHTS := 6
-const CONNECTOR_LIGHT_OFFSET := 0.55
-const BRIDGE_PILLAR_OFFSET := 0.55
-const GATEWAY_OFFSET := 1.8
+## _build_infill() tuning -- fills the ground between/around the six
+## districts (currently bare GROUND_COLOR void) with a lower-density
+## connected extension of the same street-lattice mechanism every
+## district's own interior already uses: new roads, filler buildings, park
+## zones, and water features, so no part of the map reads as unused space
+## and the town reads as one continuous place rather than six islands with
+## decoration only along the arterial connectors between them.
+##
+## INFILL_MARGIN is deliberately modest -- only just beyond each district's
+## own tight (post-compaction) bounding box -- so infill reads as filling
+## the real gaps between clusters plus a believable edge-of-town halo,
+## not sprawling into a huge featureless rectangle far from anything.
+const INFILL_MARGIN := 6.0
+## Bigger than any single district's own BLOCK_SIZE_BY_LAND_USE (2-6) --
+## infill is meant to read as lower-density connective/edge-of-town
+## development, not another dense district competing with the real ones.
+const INFILL_BLOCK_SIZE := 5
+## Real playtesting's district-internal OPEN_CELL_CHANCE (0.22) is a
+## "gaps between buildings" density; infill wants much more open ground
+## since it's explicitly meant to carry the green-space/park/water asks,
+## not just extend the districts' own building density outward. Retuned
+## after a real before/after frame-time measurement on the first version
+## (0.5/0.55) showed a genuine ~2x regression, not sandbox noise -- almost
+## 2900 extra placed GridMap cells (buildings/decor) town-wide, not
+## something a GPU-less software-rendering sandbox absorbs for free.
+## Raised further (0.72/0.3) keeps the street lattice -- and therefore
+## every district's real connectivity -- exactly as dense as before, since
+## roads are decided independently of these two constants; only how many
+## of the *remaining* cells get an actual mesh placed on them changes.
+## Reads as a real lower-density edge-of-town/suburban fringe around the
+## denser district cores besides, which is more realistic than uniform
+## density everywhere would have been anyway.
+const INFILL_OPEN_CELL_CHANCE := 0.85
+const INFILL_DECOR_ON_OPEN_CHANCE := 0.2
+
+## One river, reserved as a band of GridMap cells (kept clear of
+## streets/buildings) plus the real SurfaceTool ribbon mesh rendered along
+## the same polyline, the same two-part pattern _build_roads() already
+## uses for the arterial network. Any infill street cell whose position
+## falls inside the reserved band swaps its road-straight/road-crossroad
+## for road-bridge instead, so a road crossing the river visibly bridges
+## it rather than stopping dead at the bank.
+const WATER_COLOR := Color(0.28, 0.48, 0.68)
+const RIVER_WIDTH := 2.4
+## Cells within this many grid units of the river's own polyline are
+## reserved as water -- wide enough that the RIVER_WIDTH ribbon never
+## visibly spills past the reserved (building-free) band.
+const RIVER_RESERVE_RADIUS := 1.6
+
+## A handful of dedicated park blocks within the infill area -- real
+## rectangular zones with zero buildings and dense tree/nature cover,
+## distinct from the lighter per-cell OPEN_CELL_CHANCE greenery every
+## other infill/district cell already gets. One park additionally gets a
+## small round lake.
+const PARK_ZONE_COUNT := 4
+const PARK_ZONE_SIZE := 3
+const PARK_TREE_CHANCE := 0.6
+const LAKE_RADIUS := 1.2
 
 var _world: WorldMapData
 var _mesh_cache: Dictionary = {} # path -> Mesh
@@ -376,6 +459,7 @@ var _library_item_by_path: Dictionary = {} # glb path -> MeshLibrary item id
 var _next_library_item_id: int = 0
 var _road_straight_item: int = -1
 var _road_crossroad_item: int = -1
+var _road_bridge_item: int = -1
 ## Vector2i grid cell -> true, shared between named-building placement and
 ## the district block fill so neither ever double-places on the other's
 ## cell.
@@ -387,25 +471,22 @@ var _occupied_cells: Dictionary = {}
 ## per-district translation, so it moves whole districts closer together
 ## without touching anything about their own internal layout/density.
 var _district_offset: Dictionary = {}
-## road_node id -> district_id, so _build_roads() knows which district's
-## offset applies to each endpoint of an edge (including the inter-
-## district hub-to-hub edges, whose two ends belong to different
-## districts and so end up displaced by different amounts -- which is
-## exactly what makes the connecting road visibly shorten).
-var _node_district: Dictionary = {}
 
-## Vector2i grid cell -> Vector3 world position, populated by
-## _build_district_blocks() for every cell it places a road-straight/
-## road-crossroad tile on -- i.e. the actual street lattice as rendered,
-## not the original gameplay RoadGraph. RoadWalker's traffic/pedestrians
-## walk this instead (see _build_walk_graph()) precisely so they only ever
-## move where a road tile is actually painted on screen.
+## Vector2i grid cell -> Vector3 world position, populated by both
+## _build_district_blocks() and _build_infill() for every cell either
+## places a road-straight/road-crossroad/road-bridge tile on -- i.e. the
+## actual street lattice as rendered, not the original gameplay RoadGraph.
+## RoadWalker's traffic/pedestrians walk this instead (see
+## _build_walk_graph()) precisely so they only ever move where a road tile
+## is actually painted on screen. Since _build_infill() gives every
+## district a real neighbour on every side through this one shared grid,
+## no separate inter-district hub-to-hub bookkeeping is needed any more --
+## an earlier round's _node_district/_inter_district_edges (and the
+## diagonal arterial ribbon and hub-to-hub gateway dressing they fed) were
+## retired once a headless connectivity check confirmed the grid alone
+## already links every district into one component (see the class doc
+## comment).
 var _street_cells: Dictionary = {}
-## Array of {district_a, district_b, a: Vector3, b: Vector3}, one per real
-## inter-district hub-to-hub edge, cached by _build_district_connectors()
-## and reused by _build_walk_graph() so the walk graph's cross-district
-## hops follow the exact same positions the dressed bridge/lights render.
-var _inter_district_edges: Array = []
 
 ## Shared AnimationLibrary resources extracted once from idle.fbx/run.fbx,
 ## reused by every pedestrian's own runtime AnimationPlayer rather than
@@ -421,11 +502,10 @@ func build(world: WorldMapData) -> void:
 	_compute_district_layout()
 	_build_lighting()
 	_build_ground()
-	_build_roads()
 	_build_grid_map()
 	_build_named_buildings()
 	_build_district_blocks()
-	_build_district_connectors()
+	_build_infill()
 	_build_traffic()
 	_build_pedestrians()
 
@@ -521,13 +601,6 @@ func _compute_district_layout() -> void:
 		var compacted_3d: Vector3 = world_to_3d(centers[id])
 		_district_offset[id] = compacted_3d - original_3d
 
-	_node_district = {}
-	for node: RoadNode in _world.road_nodes:
-		for district: DistrictDefinition in _world.districts:
-			if node.id.begins_with(district.id + "_"):
-				_node_district[node.id] = district.id
-				break
-
 func _build_ground() -> void:
 	# Built from each district's already-compacted 3D bounds (its boundary
 	# points run through _world_to_3d_in_district), so the ground hugs the
@@ -554,53 +627,6 @@ func _build_ground() -> void:
 	ground.position = Vector3(center_3d.x, 0.0, center_3d.z)
 	add_child(ground)
 
-func _build_roads() -> void:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-
-	var node_by_id: Dictionary = {}
-	for node: RoadNode in _world.road_nodes:
-		node_by_id[node.id] = node.position
-
-	for edge: RoadEdge in _world.road_edges:
-		if not node_by_id.has(edge.from_id) or not node_by_id.has(edge.to_id):
-			continue
-		var from_pos_3d: Vector3 = _world_to_3d_in_district(node_by_id[edge.from_id], _node_district.get(edge.from_id, ""))
-		var to_pos_3d: Vector3 = _world_to_3d_in_district(node_by_id[edge.to_id], _node_district.get(edge.to_id, ""))
-		_add_road_quad(st, from_pos_3d, to_pos_3d)
-
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = ROAD_COLOR
-	mat.roughness = 1.0
-	st.set_material(mat)
-	var mesh: ArrayMesh = st.commit()
-
-	var inst := MeshInstance3D.new()
-	inst.mesh = mesh
-	# Slightly above the ground plane -- coplanar geometry z-fights flicker
-	# unpredictably, especially on the Web export's Compatibility renderer.
-	inst.position = Vector3(0, 0.02, 0)
-	add_child(inst)
-
-func _add_road_quad(st: SurfaceTool, a: Vector3, b: Vector3) -> void:
-	var dir: Vector3 = (b - a)
-	if dir.length() < 0.001:
-		return
-	dir = dir.normalized()
-	var side: Vector3 = dir.cross(Vector3.UP).normalized() * (ROAD_WIDTH * 0.5)
-	var p1 := a - side
-	var p2 := a + side
-	var p3 := b + side
-	var p4 := b - side
-	st.set_normal(Vector3.UP)
-	st.add_vertex(p1)
-	st.add_vertex(p3)
-	st.add_vertex(p2)
-	st.set_normal(Vector3.UP)
-	st.add_vertex(p1)
-	st.add_vertex(p4)
-	st.add_vertex(p3)
-
 func _build_grid_map() -> void:
 	_mesh_library = MeshLibrary.new()
 	_grid_map = GridMap.new()
@@ -609,6 +635,7 @@ func _build_grid_map() -> void:
 	add_child(_grid_map)
 	_road_straight_item = _register_library_item(ROADS_DIR + "road-straight.glb")
 	_road_crossroad_item = _register_library_item(ROADS_DIR + "road-crossroad.glb")
+	_road_bridge_item = _register_library_item(ROADS_DIR + "road-bridge.glb")
 
 func _register_library_item(path: String) -> int:
 	if _library_item_by_path.has(path):
@@ -734,6 +761,8 @@ func _build_district_blocks() -> void:
 		for variant_path in variants:
 			for tint in BUILDING_TINTS:
 				item_ids.append(_register_tinted_library_item(variant_path + ".glb", tint))
+		for landmark_path in LANDMARK_VARIANTS.get(land_use, []):
+			item_ids.append(_register_library_item(landmark_path + ".glb"))
 
 		var block_size: int = BLOCK_SIZE_BY_LAND_USE.get(land_use, 3)
 		var street_period: int = block_size + 1
@@ -811,131 +840,361 @@ func _open_cell_variants_for(land_use: LandUse) -> Array:
 		_:
 			return OPEN_CELL_NATURE_VARIANTS
 
-## Dresses the inter-district arterial connectors built by _build_roads()
-## above -- that ribbon mesh renders the drivable surface, but a bare flat
-## strip crossing open ground between two districts read as an empty
-## stretch with a thin road down the middle, not a real "bridge the gap"
-## connection. Every inter-district edge (both endpoints belong to
-## different districts -- always exactly the 8 real hub-to-hub edges
-## WestfordMapFactory._inter_district_roads() defines, never a
-## within-district street) gets a road-bridge.glb deck on two
-## bridge-pillar-wide.glb supports at its midpoint, a spaced run of
-## light-square.glb street lamps along its length, and a gateway
-## building/landmark near each end -- all individually instanced Node3D
-## children (not GridMap cells), the same choice already made for named
-## Locations/RoadWalker actors and for the same reason: a small, bounded
-## count (8 edges x a handful of props each) where per-instance overhead is
-## fine, positioned at real continuous angles a grid can't represent anyway
-## since these edges are part of the deliberately non-grid-aligned arterial
-## network, not a district's own street lattice.
-func _build_district_connectors() -> void:
-	var node_by_id: Dictionary = {}
-	for node: RoadNode in _world.road_nodes:
-		node_by_id[node.id] = node.position
+## Every district's own interior is a dense, deliberately built place; the
+## ground *between* them was, until now, just GROUND_COLOR void -- nothing
+## rendered there but the arterial ribbon and (since last round) a dressed
+## crossing at each of the 8 real inter-district edges. The player's ask
+## was explicit: fill that unused space with new roads, buildings, green
+## spaces, and water, all connected (no dead ends), reading as one real
+## SimCity-style town rather than six islands linked by thin threads.
+##
+## The road-connectivity rule falls out of the *mechanism*, not a special
+## graph algorithm: infill streets are laid out with the exact same
+## regular-lattice logic _build_district_blocks() already uses inside
+## every district (a real, already-verified way to guarantee no dead
+## ends -- every interior cell of a lattice is a 2-4-way junction by
+## construction, the same reason no district has ever produced a dangling
+## stub road). Infill cells write into the same shared _street_cells
+## dictionary district streets already populate, so _build_walk_graph()'s
+## existing orthogonal-adjacency check links the two together automatically
+## wherever an infill street cell and a district street cell happen to be
+## neighbours -- no separate stitching pass needed, and RoadWalker traffic
+## gets the new roads for free.
+##
+## Runs after _build_district_blocks() (needs every district's own
+## _occupied_cells/_street_cells already placed, both to avoid overlapping
+## them and to seed the adjacency stitching above) and before
+## _build_district_connectors() (so a dressed inter-district crossing can
+## still land on ground infill has already decided is a park/river, not
+## fight over the same cell).
+func _build_infill() -> void:
+	var candidate_cells: Array = _compute_infill_candidates()
+	if candidate_cells.is_empty():
+		return
+	var candidate_set: Dictionary = {}
+	for cell in candidate_cells:
+		candidate_set[cell] = true
 
 	var rng := RandomNumberGenerator.new()
-	rng.seed = FILLER_SEED + 4
+	rng.seed = FILLER_SEED + 5
+	var decor_rng := RandomNumberGenerator.new()
+	decor_rng.seed = FILLER_SEED + 6
 
-	var connectors_root := Node3D.new()
-	connectors_root.name = "DistrictConnectors"
-	add_child(connectors_root)
+	var water_cells: Dictionary = _build_river(candidate_cells, rng)
+	var park_cells: Dictionary = _build_park_zones(candidate_set, water_cells, rng, decor_rng)
 
-	for edge: RoadEdge in _world.road_edges:
-		var district_a: String = _node_district.get(edge.from_id, "")
-		var district_b: String = _node_district.get(edge.to_id, "")
-		if district_a == "" or district_b == "" or district_a == district_b:
+	# Cache tinted filler item ids per land use, built lazily the first
+	# time an infill cell actually needs that flavour -- the same
+	# variant x tint registration _build_district_blocks() does, just
+	# keyed by land use here since infill cells span every district's
+	# flavour depending which one they're nearest to, not one per-district
+	# fixed list.
+	var item_ids_by_land_use: Dictionary = {}
+
+	for cell in candidate_cells:
+		if _occupied_cells.has(cell) or water_cells.has(cell) or park_cells.has(cell):
 			continue
-		if not node_by_id.has(edge.from_id) or not node_by_id.has(edge.to_id):
+		var cell_center_3d: Vector3 = _cell_center_3d(cell)
+		var is_street_col: bool = posmod(cell.x, INFILL_BLOCK_SIZE + 1) == 0
+		var is_street_row: bool = posmod(cell.y, INFILL_BLOCK_SIZE + 1) == 0
+		var grid_pos := Vector3i(cell.x, 0, cell.y)
+		var crosses_water: bool = water_cells.has(cell)
+
+		if is_street_col and is_street_row:
+			_grid_map.set_cell_item(grid_pos, _road_bridge_item if crosses_water else _road_crossroad_item)
+			_occupied_cells[cell] = true
+			_street_cells[cell] = cell_center_3d
+		elif is_street_col:
+			if crosses_water:
+				_grid_map.set_cell_item(grid_pos, _road_bridge_item)
+			else:
+				var vertical: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, PI * 0.5))
+				_grid_map.set_cell_item(grid_pos, _road_straight_item, vertical)
+			_occupied_cells[cell] = true
+			_street_cells[cell] = cell_center_3d
+		elif is_street_row:
+			_grid_map.set_cell_item(grid_pos, _road_bridge_item if crosses_water else _road_straight_item)
+			_occupied_cells[cell] = true
+			_street_cells[cell] = cell_center_3d
+		else:
+			var land_use: LandUse = _nearest_district_land_use(cell_center_3d)
+			if decor_rng.randf() < INFILL_OPEN_CELL_CHANCE:
+				if decor_rng.randf() < INFILL_DECOR_ON_OPEN_CHANCE:
+					var open_variants: Array = _open_cell_variants_for(land_use)
+					var decor_path: String = open_variants[decor_rng.randi() % open_variants.size()] + ".glb"
+					var decor_item: int = _register_library_item(decor_path)
+					var decor_facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (decor_rng.randi() % 4) * PI * 0.5))
+					_grid_map.set_cell_item(grid_pos, decor_item, decor_facing)
+					_occupied_cells[cell] = true
+			else:
+				if not item_ids_by_land_use.has(land_use):
+					var variants: Array = FILLER_BUILDING_VARIANTS.get(land_use, FILLER_BUILDING_VARIANTS[LandUse.URBAN])
+					var ids: Array = []
+					for variant_path in variants:
+						for tint in BUILDING_TINTS:
+							ids.append(_register_tinted_library_item(variant_path + ".glb", tint))
+					for landmark_path in LANDMARK_VARIANTS.get(land_use, []):
+						ids.append(_register_library_item(landmark_path + ".glb"))
+					item_ids_by_land_use[land_use] = ids
+				var item_ids: Array = item_ids_by_land_use[land_use]
+				var item_id: int = item_ids[rng.randi() % item_ids.size()]
+				var facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (rng.randi() % 4) * PI * 0.5))
+				_grid_map.set_cell_item(grid_pos, item_id, facing)
+				_occupied_cells[cell] = true
+
+## Every GridMap cell within INFILL_MARGIN of the districts' own tight
+## bounding box that isn't already occupied and doesn't fall inside any
+## district's real polygon -- the actual gaps between/around the six
+## clusters, not a guessed shape.
+func _compute_infill_candidates() -> Array:
+	var min_pos_3d := Vector3.INF
+	var max_pos_3d := -Vector3.INF
+	for district: DistrictDefinition in _world.districts:
+		for point in district.boundary:
+			var p3: Vector3 = _world_to_3d_in_district(point, district.id)
+			min_pos_3d = min_pos_3d.min(p3)
+			max_pos_3d = max_pos_3d.max(p3)
+	var min_cell: Vector2i = _world_to_cell(min_pos_3d - Vector3(INFILL_MARGIN, 0, INFILL_MARGIN))
+	var max_cell: Vector2i = _world_to_cell(max_pos_3d + Vector3(INFILL_MARGIN, 0, INFILL_MARGIN))
+
+	var candidates: Array = []
+	for cx in range(min_cell.x, max_cell.x + 1):
+		for cy in range(min_cell.y, max_cell.y + 1):
+			var cell := Vector2i(cx, cy)
+			if _occupied_cells.has(cell):
+				continue
+			var cell_center_3d: Vector3 = _cell_center_3d(cell)
+			if _point_in_any_district(cell_center_3d):
+				continue
+			candidates.append(cell)
+	return candidates
+
+## Tests cell_center_3d against every district's own real boundary polygon
+## in that district's own (offset-corrected) local space -- the same
+## reverse-of-_world_to_3d_in_district transform _build_district_blocks()
+## already uses, just checked against all six districts in turn instead of
+## one district's own cells against just its own boundary.
+func _point_in_any_district(point_3d: Vector3) -> bool:
+	for district: DistrictDefinition in _world.districts:
+		var offset: Vector3 = _district_offset.get(district.id, Vector3.ZERO)
+		var local_2d: Vector2 = Vector2(point_3d.x - offset.x, point_3d.z - offset.z) / WORLD_SCALE
+		if Geometry2D.is_point_in_polygon(local_2d, district.boundary):
+			return true
+	return false
+
+## Which district's own flavour (land use, and by extension building/decor
+## variety) an infill cell should read as an extension of -- simple nearest
+## real-district-centroid lookup, so infill next to WEST_INDUSTRIAL reads
+## industrial, infill next to a residential cluster reads residential, and
+## the whole town keeps a coherent gradient instead of one uniform infill
+## style dropped in everywhere.
+func _nearest_district_land_use(point_3d: Vector3) -> LandUse:
+	var best_district := ""
+	var best_dist := INF
+	for district: DistrictDefinition in _world.districts:
+		var centroid_2d: Vector2 = _polygon_centroid(district.boundary)
+		var centroid_3d: Vector3 = _world_to_3d_in_district(centroid_2d, district.id)
+		var d: float = centroid_3d.distance_squared_to(point_3d)
+		if d < best_dist:
+			best_dist = d
+			best_district = district.id
+	return _land_use_for_district(best_district)
+
+## One river, laid out as a 3-point polyline spanning the infill area
+## (start/bend/end picked from the real candidate cells' own bounding
+## box, not guessed coordinates), reserved as every candidate cell within
+## RIVER_RESERVE_RADIUS of that polyline (returned, so _build_infill()
+## skips buildings/decor there and swaps any street cell inside it for
+## road-bridge) plus the actual visible water rendered as a SurfaceTool
+## ribbon along the same polyline -- the same two-part "reserve the
+## footprint, render the real mesh separately" pattern _build_roads()
+## already uses for the arterial network.
+func _build_river(candidate_cells: Array, rng: RandomNumberGenerator) -> Dictionary:
+	if candidate_cells.is_empty():
+		return {}
+	var min_cell := Vector2i(2147483647, 2147483647)
+	var max_cell := Vector2i(-2147483648, -2147483648)
+	for cell in candidate_cells:
+		min_cell = Vector2i(mini(min_cell.x, cell.x), mini(min_cell.y, cell.y))
+		max_cell = Vector2i(maxi(max_cell.x, cell.x), maxi(max_cell.y, cell.y))
+	if max_cell.x - min_cell.x < 6 or max_cell.y - min_cell.y < 6:
+		return {} # infill area too small for a believable river
+
+	# A gentle diagonal, corner to corner, with one bend partway along --
+	# reads as a real winding river rather than a single straight cut.
+	var corner_a := Vector2(min_cell.x, min_cell.y)
+	var corner_b := Vector2(max_cell.x, max_cell.y)
+	if rng.randf() < 0.5:
+		corner_a = Vector2(min_cell.x, max_cell.y)
+		corner_b = Vector2(max_cell.x, min_cell.y)
+	var mid: Vector2 = corner_a.lerp(corner_b, 0.5)
+	var perp: Vector2 = (corner_b - corner_a).orthogonal().normalized()
+	mid += perp * (corner_a.distance_to(corner_b) * 0.15) * (1.0 if rng.randf() < 0.5 else -1.0)
+
+	var points_2d: Array = [corner_a, mid, corner_b]
+	var points_3d: Array = []
+	for p in points_2d:
+		points_3d.append(_cell_center_3d(Vector2i(roundi(p.x), roundi(p.y))))
+
+	var water_cells: Dictionary = {}
+	var radius_i: int = ceili(RIVER_RESERVE_RADIUS)
+	for cell in candidate_cells:
+		var p: Vector3 = _cell_center_3d(cell)
+		if _distance_to_polyline(p, points_3d) <= RIVER_RESERVE_RADIUS:
+			water_cells[cell] = true
+
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in points_3d.size() - 1:
+		_add_ribbon_quad(st, points_3d[i], points_3d[i + 1], RIVER_WIDTH)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = WATER_COLOR
+	mat.roughness = 0.15
+	mat.metallic = 0.1
+	st.set_material(mat)
+	var mesh: ArrayMesh = st.commit()
+	var inst := MeshInstance3D.new()
+	inst.mesh = mesh
+	inst.position = Vector3(0, 0.015, 0) # just above ground, just below roads
+	add_child(inst)
+
+	return water_cells
+
+func _distance_to_polyline(point: Vector3, points_3d: Array) -> float:
+	var best := INF
+	for i in points_3d.size() - 1:
+		var a: Vector3 = points_3d[i]
+		var b: Vector3 = points_3d[i + 1]
+		var seg: Vector3 = b - a
+		var seg_len_sq: float = seg.length_squared()
+		var t: float = 0.0 if seg_len_sq < 0.0001 else clampf((point - a).dot(seg) / seg_len_sq, 0.0, 1.0)
+		var closest: Vector3 = a + seg * t
+		best = minf(best, point.distance_to(closest))
+	return best
+
+## A flat quad-strip ribbon between two points, at a given width -- the
+## same technique the old diagonal arterial road mesh used before it was
+## retired in favour of a fully grid-based road network (see the class doc
+## comment), now used only for the river's own visible water surface.
+func _add_ribbon_quad(st: SurfaceTool, a: Vector3, b: Vector3, width: float) -> void:
+	var dir: Vector3 = (b - a)
+	if dir.length() < 0.001:
+		return
+	dir = dir.normalized()
+	var side: Vector3 = dir.cross(Vector3.UP).normalized() * (width * 0.5)
+	var p1 := a - side
+	var p2 := a + side
+	var p3 := b + side
+	var p4 := b - side
+	st.set_normal(Vector3.UP)
+	st.add_vertex(p1)
+	st.add_vertex(p3)
+	st.add_vertex(p2)
+	st.set_normal(Vector3.UP)
+	st.add_vertex(p1)
+	st.add_vertex(p4)
+	st.add_vertex(p3)
+
+## PARK_ZONE_COUNT real rectangular blocks (PARK_ZONE_SIZE x
+## PARK_ZONE_SIZE) picked from the infill candidates -- zero buildings,
+## dense tree/nature cover instead, distinct from the lighter per-cell
+## OPEN_CELL_CHANCE greenery scattered through the rest of infill. The
+## first zone found also gets a small round lake (LAKE_RADIUS), so the
+## infill area's two water-feature types -- a river actually carrying
+## roads across it, and a still pond sat inside a park -- read as
+## genuinely different, not the same water feature twice.
+func _build_park_zones(candidate_set: Dictionary, water_cells: Dictionary, rng: RandomNumberGenerator, decor_rng: RandomNumberGenerator) -> Dictionary:
+	var park_cells: Dictionary = {}
+	var candidate_list: Array = candidate_set.keys()
+	var placed := 0
+	var attempts := 0
+	var lake_placed := false
+	while placed < PARK_ZONE_COUNT and attempts < 400:
+		attempts += 1
+		var anchor: Vector2i = candidate_list[rng.randi() % candidate_list.size()]
+		var block: Array = []
+		var ok := true
+		for dx in PARK_ZONE_SIZE:
+			for dy in PARK_ZONE_SIZE:
+				var c: Vector2i = anchor + Vector2i(dx, dy)
+				if not candidate_set.has(c) or water_cells.has(c) or park_cells.has(c) or _occupied_cells.has(c):
+					ok = false
+					break
+				block.append(c)
+			if not ok:
+				break
+		if not ok:
 			continue
-		var a: Vector3 = _world_to_3d_in_district(node_by_id[edge.from_id], district_a)
-		var b: Vector3 = _world_to_3d_in_district(node_by_id[edge.to_id], district_b)
-		_inter_district_edges.append({"district_a": district_a, "district_b": district_b, "a": a, "b": b})
-		_dress_connector_edge(connectors_root, a, b, district_a, district_b, rng)
+		placed += 1
+		var lake_center: Vector2 = Vector2(anchor.x + PARK_ZONE_SIZE * 0.5, anchor.y + PARK_ZONE_SIZE * 0.5)
+		for c in block:
+			park_cells[c] = true
+			_occupied_cells[c] = true
+			var grid_pos := Vector3i(c.x, 0, c.y)
+			var is_lake_cell: bool = not lake_placed and Vector2(c.x + 0.5, c.y + 0.5).distance_to(lake_center) <= LAKE_RADIUS
+			if is_lake_cell:
+				continue # left as bare water-coloured ground below, no GridMap item
+			if decor_rng.randf() < PARK_TREE_CHANCE:
+				var variant: String = OPEN_CELL_NATURE_VARIANTS[decor_rng.randi() % OPEN_CELL_NATURE_VARIANTS.size()]
+				var decor_item: int = _register_library_item(variant + ".glb")
+				var decor_facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (decor_rng.randi() % 4) * PI * 0.5))
+				_grid_map.set_cell_item(grid_pos, decor_item, decor_facing)
+		if not lake_placed:
+			_build_lake(anchor, lake_center)
+			lake_placed = true
+	return park_cells
 
-func _dress_connector_edge(root: Node3D, a: Vector3, b: Vector3, district_a: String, district_b: String, rng: RandomNumberGenerator) -> void:
-	var length: float = a.distance_to(b)
-	if length < 0.01:
-		return
-	var dir: Vector3 = (b - a).normalized()
-	var side: Vector3 = dir.cross(Vector3.UP).normalized()
-	var mid: Vector3 = (a + b) * 0.5
+## The lake itself: a flattened cylinder sat at ground level in the middle
+## of the first placed park zone, coloured/sized like the river so the two
+## water features read as the same material -- a still pond, not a second
+## river.
+func _build_lake(anchor: Vector2i, lake_center_cell: Vector2) -> void:
+	var center_3d: Vector3 = _cell_center_3d(Vector2i(roundi(anchor.x + PARK_ZONE_SIZE * 0.5), roundi(anchor.y + PARK_ZONE_SIZE * 0.5)))
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = LAKE_RADIUS
+	mesh.bottom_radius = LAKE_RADIUS
+	mesh.height = 0.03
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = WATER_COLOR
+	mat.roughness = 0.15
+	mat.metallic = 0.1
+	mesh.material = mat
+	var inst := MeshInstance3D.new()
+	inst.mesh = mesh
+	inst.position = center_3d + Vector3(0, 0.015, 0)
+	add_child(inst)
 
-	var bridge_scene: PackedScene = load(ROADS_DIR + "road-bridge.glb")
-	if bridge_scene != null:
-		var bridge_inst: Node3D = bridge_scene.instantiate()
-		root.add_child(bridge_inst)
-		bridge_inst.position = mid
-		bridge_inst.look_at(mid + dir, Vector3.UP)
-
-	var pillar_scene: PackedScene = load(ROADS_DIR + "bridge-pillar-wide.glb")
-	if pillar_scene != null:
-		for lateral_sign in [-1.0, 1.0]:
-			var pillar_inst: Node3D = pillar_scene.instantiate()
-			root.add_child(pillar_inst)
-			pillar_inst.position = mid + side * (BRIDGE_PILLAR_OFFSET * lateral_sign)
-			pillar_inst.look_at(pillar_inst.position + dir, Vector3.UP)
-
-	var light_scene: PackedScene = load(ROADS_DIR + "light-square.glb")
-	if light_scene != null:
-		var light_count: int = clampi(roundi(length / CONNECTOR_LIGHT_SPACING) - 1, CONNECTOR_MIN_LIGHTS, CONNECTOR_MAX_LIGHTS)
-		for i in light_count:
-			var t: float = float(i + 1) / float(light_count + 1)
-			var lateral_sign: float = 1.0 if i % 2 == 0 else -1.0
-			var light_inst: Node3D = light_scene.instantiate()
-			root.add_child(light_inst)
-			light_inst.position = a.lerp(b, t) + side * (CONNECTOR_LIGHT_OFFSET * lateral_sign)
-			light_inst.look_at(light_inst.position + dir, Vector3.UP)
-
-	# One gateway landmark near each end -- district_a's own land use at the
-	# near end, district_b's at the far end, on opposite sides of the road
-	# -- so a crossing reads as a real transition from both directions
-	# instead of only ever dressing whichever district happens to be listed
-	# second in WestfordMapFactory._inter_district_roads() (town_centre is
-	# always listed first, so a far-end-only version never actually placed
-	# one of the URBAN tower variants at all -- caught by the scene-tree
-	# inspection below, not visually).
-	_place_gateway(root, a.lerp(b, 0.25) + side * GATEWAY_OFFSET, district_a, rng)
-	_place_gateway(root, a.lerp(b, 0.75) - side * GATEWAY_OFFSET, district_b, rng)
-
-func _place_gateway(root: Node3D, position: Vector3, district_id: String, rng: RandomNumberGenerator) -> void:
-	var gateway_path: String = _gateway_variant_for(district_id, rng)
-	var gateway_scene: PackedScene = load(gateway_path + ".glb")
-	if gateway_scene == null:
-		return
-	var gateway_inst: Node3D = gateway_scene.instantiate()
-	root.add_child(gateway_inst)
-	gateway_inst.position = position
-	gateway_inst.rotation.y = (rng.randi() % 4) * (PI * 0.5)
-	# Only tint the modular-buildings houses/towers -- factory-kit clutter
-	# (structure-short/hopper-round for an INDUSTRIAL gateway) is meant to
-	# read as utilitarian equipment, not a painted building.
-	if gateway_path.begins_with(MODULAR_DIR):
-		_apply_tint(gateway_inst, BUILDING_TINTS[rng.randi() % BUILDING_TINTS.size()])
-
-## Which gateway landmark marks a crossing's entrance on district_id's side,
-## keyed off its own land use so an industrial crossing gets factory clutter
-## instead of a house -- kenney_modular-buildings' pre-assembled sample
-## buildings for URBAN/RESIDENTIAL/RURAL, kenney_factory-kit for INDUSTRIAL. Draws
-## from the connector's own seeded rng (not a hash of the district id) so
-## the two different edges arriving at the same district can still pick
-## different variants.
-func _gateway_variant_for(district_id: String, rng: RandomNumberGenerator) -> String:
-	var land_use: LandUse = _land_use_for_district(district_id)
-	var variants: Array
-	match land_use:
-		LandUse.INDUSTRIAL:
-			variants = [FACTORY_DIR + "structure-short", FACTORY_DIR + "hopper-round"]
-		LandUse.URBAN:
-			variants = [
-				MODULAR_DIR + "building-sample-tower-a", MODULAR_DIR + "building-sample-tower-b",
-				MODULAR_DIR + "building-sample-tower-c", MODULAR_DIR + "building-sample-tower-d",
-			]
-		_:
-			variants = [
-				MODULAR_DIR + "building-sample-house-a", MODULAR_DIR + "building-sample-house-b",
-				MODULAR_DIR + "building-sample-house-c",
-			]
-	return variants[rng.randi() % variants.size()]
+## A handful of "landmark" variants per land use -- kenney_modular-buildings'
+## pre-assembled sample houses/towers, kenney_factory-kit clutter for
+## INDUSTRIAL -- folded into a district/infill cell's regular filler-
+## building pool instead of the earlier round's separate, continuously-
+## positioned hub-to-hub gateway dressing. That earlier version placed
+## these next to a diagonal arterial ribbon that has since been retired
+## entirely (see the class doc comment on why): once _build_infill() gives
+## every district a real, grid-connected neighbour on every side, a
+## bespoke landmark tied to one specific hub-to-hub line either duplicated
+## a road the grid already provides or, worse, floated over ground with no
+## real road under it at all -- a real player report ("just separate
+## clumps... none of them join or flow together... the old road system
+## hidden underneath") that traced back to exactly this: two independent
+## road systems (the grid, and the diagonal ribbon these landmarks used to
+## ride along) that never shared a coordinate space. Registered plain (no
+## tint -- these already carry their own distinctive two-tone bake) and
+## added once per land use pool, so they show up occasionally alongside
+## the regular tinted filler variants, always on a real GridMap cell with
+## a real road on every side that's actually part of the same lattice.
+const LANDMARK_VARIANTS := {
+	LandUse.URBAN: [
+		MODULAR_DIR + "building-sample-tower-a", MODULAR_DIR + "building-sample-tower-b",
+		MODULAR_DIR + "building-sample-tower-c", MODULAR_DIR + "building-sample-tower-d",
+	],
+	LandUse.RESIDENTIAL: [
+		MODULAR_DIR + "building-sample-house-a", MODULAR_DIR + "building-sample-house-b",
+		MODULAR_DIR + "building-sample-house-c",
+	],
+	LandUse.RURAL: [MODULAR_DIR + "building-sample-house-a"],
+	LandUse.INDUSTRIAL: [FACTORY_DIR + "structure-short", FACTORY_DIR + "hopper-round"],
+}
 
 ## Builds the node_id -> 3D position / node_id -> Array[neighbour ids]
 ## lookups RoadWalker needs -- shared between _build_traffic() and
@@ -953,16 +1212,17 @@ func _gateway_variant_for(district_id: String, rng: RandomNumberGenerator) -> St
 ## had no reason to stay on visible road tiles at all.
 ##
 ## Nodes here are the real street cells themselves (_street_cells, keyed by
-## Vector2i grid coordinate, populated by _build_district_blocks() at the
-## exact moment it places each road tile), with edges only between
-## orthogonally-adjacent street cells -- exactly the tiles rendered on
-## screen, so a walker can only ever be on a real road. Crossing between
-## districts reuses _inter_district_edges (the same hub-to-hub positions
-## _build_district_connectors() already dressed with a bridge/lights this
-## round): each hub becomes an extra pseudo-node linked to the nearest real
-## street cell in its own district and to its opposite hub, so a car
-## crossing a gap visibly drives over the dressed bridge instead of
-## teleporting or cutting through open ground.
+## Vector2i grid coordinate, populated by both _build_district_blocks() and
+## _build_infill() at the exact moment each places a road tile), with edges
+## only between orthogonally-adjacent street cells -- exactly the tiles
+## rendered on screen, so a walker can only ever be on a real road.
+## Crossing between districts needs no special handling any more: since
+## _build_infill() fills the whole gap between every district with its own
+## connected lattice that stitches to each district's edge streets through
+## this same shared dictionary, the ordinary orthogonal-adjacency loop
+## below already links every district into one town-wide network (confirmed
+## with a headless connectivity check after retiring the hub-to-hub
+## pseudo-node linking an earlier round needed before infill existed).
 func _build_walk_graph() -> Dictionary:
 	var positions: Dictionary = {}
 	var adjacency: Dictionary = {}
@@ -975,22 +1235,6 @@ func _build_walk_graph() -> Dictionary:
 			if _street_cells.has(neighbour):
 				neighbours.append(neighbour)
 		adjacency[cell] = neighbours
-
-	for edge_info in _inter_district_edges:
-		var hub_a: Vector3 = edge_info["a"]
-		var hub_b: Vector3 = edge_info["b"]
-		var cell_a: Vector2i = _nearest_street_cell(hub_a)
-		var cell_b: Vector2i = _nearest_street_cell(hub_b)
-		if not positions.has(cell_a) or not positions.has(cell_b):
-			continue
-		var hub_a_id: String = "hub_%s_%s_a" % [edge_info["district_a"], edge_info["district_b"]]
-		var hub_b_id: String = "hub_%s_%s_b" % [edge_info["district_a"], edge_info["district_b"]]
-		positions[hub_a_id] = hub_a
-		positions[hub_b_id] = hub_b
-		adjacency[hub_a_id] = [cell_a, hub_b_id]
-		adjacency[hub_b_id] = [cell_b, hub_a_id]
-		adjacency[cell_a].append(hub_a_id)
-		adjacency[cell_b].append(hub_b_id)
 
 	return _largest_component(positions, adjacency)
 
@@ -1029,20 +1273,6 @@ func _largest_component(positions: Dictionary, adjacency: Dictionary) -> Diction
 		filtered_positions[id] = positions[id]
 		filtered_adjacency[id] = adjacency[id]
 	return {"positions": filtered_positions, "adjacency": filtered_adjacency}
-
-## Brute-force nearest _street_cells entry to a world position -- called
-## only a handful of times (twice per real inter-district edge, 16 calls
-## total) at scene-build time, so a linear scan over a few hundred cells is
-## fine; no spatial index needed for a one-time cost this small.
-func _nearest_street_cell(point: Vector3) -> Vector2i:
-	var best_cell := Vector2i.ZERO
-	var best_dist := INF
-	for cell in _street_cells:
-		var d: float = _street_cells[cell].distance_squared_to(point)
-		if d < best_dist:
-			best_dist = d
-			best_cell = cell
-	return best_cell
 
 ## A small, fixed number of cars, each its own RoadWalker instance
 ## following the real road graph forever -- this is the actual fix for
