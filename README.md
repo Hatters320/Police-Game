@@ -492,6 +492,57 @@ instead of a tiny cluster in a sea of empty green, MIN zoom-in still
 reads individual buildings and streets clearly, and pan/dispatch/panel
 flows are unaffected.
 
+The player then added a large batch of further Kenney kits to the shared
+Google Drive -- houses, cars, people, roads, green spaces -- and asked
+for two things: use them to make the town look like a real town, and
+space individual buildings apart from each other (roads, pathways, green
+areas) so it stopped feeling so uniformly packed.
+
+Three of the new kits went in directly: `kenney_city-kit-suburban` gives
+RESIDENTIAL/RURAL districts real houses (21 variants) instead of reusing
+the same commercial shop/office shapes every other district already used
+-- confirmed on a real incident location (Ashford Row, in east_estate)
+as a proper green-roofed neighbourhood on a real street grid, not a wall
+of shops. `kenney_mini-forest` supplies standalone decorative trees.
+`kenney_car-kit` adds civilian traffic (hatchback, taxi, van, delivery)
+scattered along street cells alongside the existing ambulance/police.
+The "space buildings out" ask became `City3DView.OPEN_CELL_CHANCE`:
+roughly a fifth of otherwise-buildable cells are now deliberately left
+as bare ground instead of getting a building -- since the ground plane
+is already a park green, an open cell reads as a real gap/garden/paved
+area without needing a separate "path" mesh for it, and about a quarter
+of those open cells get a standalone tree so the openness reads as real
+greenery rather than just absence.
+
+A fourth kit -- `kenney_animated-characters-protagonists`, for people --
+was tried and pulled back out. The shared character rig has no baked
+idle pose; instantiating it without wiring up real animation import
+(a separate idle.fbx clip driven through an AnimationPlayer, genuine
+work disproportionate to background scenery) rendered its raw bind
+pose -- a T-pose, arms straight out -- at a scale that towered over
+multi-storey buildings. Confirmed as actually broken, not merely
+unpolished, against a real Web export screenshot, so it was removed
+rather than shipped; the raw FBX/skin files stay in
+`data/models/people/`, unused, in case a later round wants to do the
+animation import properly.
+
+Giving cars and trees their own individually instanced scene node each
+(the same pattern already used for named buildings) measured a real
+frame-time regression against a real Web export once there were enough
+of them scattered through town -- both now go through the same shared
+`GridMap` as buildings and roads instead, which batches per unique mesh
+internally regardless of cell count. That recovered some of the
+regression but not all of it; the remainder traces to the suburban
+houses themselves being genuinely more detailed geometry than the
+simple boxes RESIDENTIAL/RURAL filler used before, which is the real
+content upgrade the player actually asked for, not something to trade
+away by reverting to plainer shapes. Reported honestly rather than
+chased further: the sandbox this was measured in has no GPU (software
+WebGL fallback, the same caveat noted throughout this project's Web
+performance checks), so its absolute FPS numbers aren't a real-device
+result, only a same-sandbox before/after comparison -- a genuine
+real-device check is still open.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
