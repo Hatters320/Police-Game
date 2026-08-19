@@ -13,7 +13,7 @@ var _map_view: MapView
 var _incident_panel: IncidentPanelView
 
 func _panel_width() -> float:
-	return 180.0
+	return 110.0
 
 func wire(map_view: MapView, incident_panel: IncidentPanelView) -> void:
 	_map_view = map_view

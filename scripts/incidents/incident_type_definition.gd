@@ -50,5 +50,12 @@ extends Resource
 @export var known_fact_templates: Array[String] = []
 @export var unknown_fact_templates: Array[String] = []
 
+## Which REQUEST SPECIALIST type (GameEnums.SpecialistType), if any, best
+## fits this incident type -- surfaced in IncidentPanelView as a
+## "recommended for this incident" tag so the player has a concrete steer
+## instead of guessing cold between Traffic/Dog/Firearms. -1 = no
+## particular recommendation (most types: a general response is fine).
+@export var recommended_specialist: int = -1
+
 func state_duration(state: GameEnums.IncidentState, fallback: float = 10.0) -> float:
 	return state_durations.get(state, fallback)

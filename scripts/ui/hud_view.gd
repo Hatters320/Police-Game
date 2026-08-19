@@ -14,6 +14,7 @@ var _incidents_label: Label
 var _staffing_label: Label
 var _fatigue_label: Label
 var _feed_list: VBoxContainer
+var _feed_scroll: ScrollContainer
 var _controls_row: HBoxContainer
 var _overlay_picker: OptionButton
 var _map_view: MapView
@@ -90,21 +91,21 @@ func _ready() -> void:
 	feed_style.content_margin_bottom = 2
 	feed_panel.add_theme_stylebox_override("panel", feed_style)
 	feed_panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	feed_panel.position = Vector2(8, -48)
-	feed_panel.custom_minimum_size = Vector2(0, 44)
-	feed_panel.offset_right = -8
+	feed_panel.position = Vector2(16, -60)
+	feed_panel.custom_minimum_size = Vector2(0, 56)
+	feed_panel.offset_right = -16
 	add_child(feed_panel)
 
 	# Still a real vertical scroll, not a single-line ticker -- "thin" means
 	# noticeably shorter than the old ~90px box (spec section 39/a real
 	# user report both want scroll-back history kept, not traded away for
 	# thinness), not reduced to one line with no way to browse past lines.
-	var feed_scroll := ScrollContainer.new()
-	feed_scroll.custom_minimum_size = Vector2(0, 40)
-	feed_panel.add_child(feed_scroll)
+	_feed_scroll = ScrollContainer.new()
+	_feed_scroll.custom_minimum_size = Vector2(0, 52)
+	feed_panel.add_child(_feed_scroll)
 
 	_feed_list = VBoxContainer.new()
-	feed_scroll.add_child(_feed_list)
+	_feed_scroll.add_child(_feed_list)
 
 	Simulation.core.incident_manager.incident_created.connect(_on_incident_created)
 	Simulation.core.incident_manager.incident_escalated.connect(_on_incident_escalated)
@@ -281,12 +282,22 @@ func _append_feed(text: String, color: Color = Color.WHITE, incident_id: String 
 		_feed_list.add_child(button)
 		if _feed_list.get_child_count() > MAX_FEED_ENTRIES:
 			_feed_list.get_child(0).queue_free()
+		_scroll_feed_to_bottom()
 		return
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_font_size_override("font_size", 10)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD
 	label.modulate = color
 	_feed_list.add_child(label)
 	if _feed_list.get_child_count() > MAX_FEED_ENTRIES:
 		_feed_list.get_child(0).queue_free()
+	_scroll_feed_to_bottom()
+
+## New lines should always be visible without the player having to scroll
+## down for them, but scroll-back through history (the whole point of
+## MAX_FEED_ENTRIES/ScrollContainer above) still needs to work -- deferred
+## so it applies after this frame's layout pass has sized the new line in,
+## not against the scroll range from before it existed.
+func _scroll_feed_to_bottom() -> void:
+	_feed_scroll.set_deferred("scroll_vertical", 999999)

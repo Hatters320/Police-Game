@@ -34,7 +34,7 @@ func _panel_anchor() -> int:
 ## Slim docked strip, not the 360-wide default every detail panel wants --
 ## this is always on screen, so it needs to leave the map usable beside it.
 func _panel_width() -> float:
-	return 180.0
+	return 110.0
 
 func wire(map_view: MapView, unit_panel: UnitPanelView) -> void:
 	_map_view = map_view
@@ -90,7 +90,7 @@ func _status_text(unit: PoliceUnit) -> String:
 	match unit.status:
 		GameEnums.UnitStatus.AVAILABLE: return "available"
 		GameEnums.UnitStatus.PATROL: return "on patrol"
-		GameEnums.UnitStatus.TRAVELLING: return "travelling"
+		GameEnums.UnitStatus.TRAVELLING: return "en route to incident"
 		GameEnums.UnitStatus.ON_SCENE: return "on scene"
 		GameEnums.UnitStatus.ON_BREAK: return "on break"
 		GameEnums.UnitStatus.UNAVAILABLE: return "unavailable"

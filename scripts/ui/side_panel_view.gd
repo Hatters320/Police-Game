@@ -30,13 +30,17 @@ const PANEL_TOP_Y := HudView.HUD_BOTTOM + 6.0
 ## Override for a taller panel (e.g. a full-length browsable list) --
 ## content still scrolls beyond this, it's just the visible window.
 func _panel_height() -> float:
-	return 240.0
+	return 200.0
 
 ## Override for a narrower panel -- the always-docked Resources/Incidents
 ## panels use a slim width so the map stays visible between them; every
-## detail panel keeps the full 360 it needs for dispatch/welfare controls.
+## detail panel keeps this default, wide enough for its dispatch/welfare
+## controls without dominating the screen (a real player screenshot found
+## the old 360 -- unchanged since before every other panel in this pass
+## shrank -- reading as "way too big... needs to just overlay the incident
+## box").
 func _panel_width() -> float:
-	return 360.0
+	return 240.0
 
 ## Override to a higher layer so this panel draws on top of the always-
 ## docked Resources/Incidents panels when both are visible -- every
@@ -100,15 +104,24 @@ func add_mini_header(text: String) -> void:
 	label.modulate = Color(0.75, 0.8, 1.0)
 	content.add_child(label)
 
+## Content font used by every plain-text helper below -- without an
+## explicit override these all inherited the project's 22px theme default
+## (main.gd's DEFAULT_FONT_SIZE), which was a real contributor to panels
+## reading as oversized alongside the deliberately-shrunk chrome around
+## them.
+const CONTENT_FONT_SIZE := 12
+
 func add_line(text: String) -> void:
 	var label := Label.new()
 	label.text = text
+	label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD
 	content.add_child(label)
 
 func add_dim_line(text: String) -> void:
 	var label := Label.new()
 	label.text = text
+	label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 	label.modulate = Color(0.6, 0.6, 0.6)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD
 	content.add_child(label)

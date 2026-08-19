@@ -39,7 +39,7 @@ func _add_officer_block(officer: NeighbourhoodOfficer, manager: NeighbourhoodMan
 	add_divider()
 	var name_label := Label.new()
 	name_label.text = officer.officer_name
-	name_label.add_theme_font_size_override("font_size", 18)
+	name_label.add_theme_font_size_override("font_size", 13)
 	content.add_child(name_label)
 	add_dim_line(manager.status_text(officer))
 
@@ -51,6 +51,8 @@ func _add_officer_block(officer: NeighbourhoodOfficer, manager: NeighbourhoodMan
 		_:
 			var recall_button := Button.new()
 			recall_button.text = "Recall"
+			recall_button.custom_minimum_size = Vector2(0, 30)
+			recall_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 			recall_button.pressed.connect(_on_recall.bind(officer.id))
 			content.add_child(recall_button)
 
@@ -62,12 +64,14 @@ func _add_engagement_controls(officer: NeighbourhoodOfficer) -> void:
 	for district: DistrictDefinition in Simulation.core.world.districts:
 		picker.add_item(district.display_name)
 		picker.set_item_metadata(picker.item_count - 1, district.id)
-	picker.custom_minimum_size = Vector2(220, 48)
+	picker.custom_minimum_size = Vector2(130, 30)
+	picker.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 	row.add_child(picker)
 
 	var task_button := Button.new()
 	task_button.text = "Task"
-	task_button.custom_minimum_size = Vector2(0, 48)
+	task_button.custom_minimum_size = Vector2(0, 30)
+	task_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 	task_button.pressed.connect(_on_task_engagement.bind(officer.id, picker))
 	row.add_child(task_button)
 

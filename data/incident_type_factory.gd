@@ -96,6 +96,7 @@ static func _burglary() -> IncidentTypeDefinition:
 	def.escalation_risk_per_minute = 0.004
 	def.known_fact_templates = ["Forced entry reported", "Homeowner discovered the break-in on return"]
 	def.unknown_fact_templates = ["Whether the offender is still on scene", "What was taken", "Point of entry"]
+	def.recommended_specialist = GameEnums.SpecialistType.DOG # tracking a suspect who's fled the scene
 	return def
 
 static func _assault() -> IncidentTypeDefinition:
@@ -123,6 +124,7 @@ static func _assault() -> IncidentTypeDefinition:
 	def.escalation_risk_per_minute = 0.02
 	def.known_fact_templates = ["Caller reports a physical altercation"]
 	def.unknown_fact_templates = ["Number of people involved", "Whether weapons are involved", "Injuries sustained"]
+	def.recommended_specialist = GameEnums.SpecialistType.FIREARMS # violence in progress -- officer safety
 	return def
 
 static func _domestic() -> IncidentTypeDefinition:

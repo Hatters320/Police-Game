@@ -16,6 +16,22 @@ var _current_incident_id: String = ""
 func _panel_layer() -> int:
 	return 4
 
+## A real player screenshot found this "way too big... needs to just
+## overlay the incident box" once every other panel had already shrunk --
+## this was the one panel whose own content (as opposed to the shared
+## SidePanelView helpers) still used the project's 22px default font and
+## 48-52px buttons throughout. Narrower and shorter than the shared
+## detail-panel default too (SidePanelView's own 240x200), landing it
+## close to where IncidentsListPanelView sits rather than spanning most
+## of the screen.
+func _panel_width() -> float:
+	return 220.0
+
+func _panel_height() -> float:
+	return 190.0
+
+const ACTION_BUTTON_SIZE := Vector2(0, 32)
+
 func open(incident_id: String) -> void:
 	_current_incident_id = incident_id
 	_show_panel()
@@ -58,6 +74,7 @@ func _add_header(type_def: IncidentTypeDefinition, incident: Incident, location:
 
 	var state_label := Label.new()
 	state_label.text = _state_text(incident.state)
+	state_label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 	if incident.escalation_level > 0:
 		state_label.text += "  (escalated x%d)" % incident.escalation_level
 		state_label.modulate = Color(0.9, 0.55, 0.25)
@@ -82,6 +99,7 @@ func _add_priority_block(incident: Incident) -> void:
 	add_divider()
 	var priority_label := Label.new()
 	priority_label.text = "Priority %d -- %s" % [incident.priority, _priority_text(incident.priority)]
+	priority_label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 	priority_label.modulate = MapView.PRIORITY_COLORS.get(incident.priority, Color.WHITE)
 	content.add_child(priority_label)
 	add_dim_line("Threat %d   Harm %d   Vulnerability %d" % [int(incident.threat), int(incident.harm), int(incident.vulnerability)])
@@ -110,7 +128,8 @@ func _add_facts_block(incident: Incident) -> void:
 		add_dim_line("%d piece(s) of information not yet known" % incident.unknown_facts.size())
 		var request_button := Button.new()
 		request_button.text = "Request Information"
-		request_button.custom_minimum_size = Vector2(0, 52)
+		request_button.custom_minimum_size = ACTION_BUTTON_SIZE
+		request_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 		request_button.pressed.connect(_on_request_information)
 		content.add_child(request_button)
 
@@ -127,7 +146,8 @@ func _add_intent_block(incident: Incident) -> void:
 		var button := Button.new()
 		button.text = pair[1]
 		button.toggle_mode = true
-		button.custom_minimum_size = Vector2(0, 50)
+		button.custom_minimum_size = ACTION_BUTTON_SIZE
+		button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 		button.button_pressed = incident.command_intent == pair[0]
 		button.pressed.connect(_on_intent_pressed.bind(pair[0]))
 		row.add_child(button)
@@ -161,16 +181,17 @@ func _add_assigned_units_block(incident: Incident) -> void:
 		content.add_child(row)
 		var label := Label.new()
 		label.text = "%s%s -- %s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit)]
-		# Narrower than the old 260, and wrapping enabled: alongside a
-		# button (widest real case: "Reassign here"), 260 pushed the row to
-		# 429 wide against SidePanelView's 360-wide scroll area on a real
-		# phone -- confirmed by measuring the actual rendered row size.
-		label.custom_minimum_size = Vector2(170, 0)
+		# Narrow enough that, alongside a button (widest real case:
+		# "Reassign here"), the row still fits the panel's own (now much
+		# narrower) 220px width.
+		label.custom_minimum_size = Vector2(90, 0)
+		label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD
 		row.add_child(label)
 		var recall_button := Button.new()
 		recall_button.text = "Recall"
-		recall_button.custom_minimum_size = Vector2(0, 48)
+		recall_button.custom_minimum_size = ACTION_BUTTON_SIZE
+		recall_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 		recall_button.pressed.connect(_on_stand_down.bind(unit_id))
 		row.add_child(recall_button)
 
@@ -189,6 +210,7 @@ func _add_supervisor_line(incident: Incident) -> void:
 	else:
 		label.text = "Supervisor recommended -- consider sending a sergeant."
 		label.modulate = Color(0.9, 0.65, 0.3)
+	label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD
 	content.add_child(label)
 
@@ -215,9 +237,14 @@ func _on_stand_down(unit_id: String) -> void:
 	Simulation.commands().stand_down_unit(unit_id)
 	refresh()
 
+## The nearest-unit tag (below) is real guidance, not decoration -- spec
+## section 25/56 both want the player steered toward a sensible choice
+## rather than reading five equivalent-looking rows and guessing.
 func _add_available_units_block(incident: Incident) -> void:
 	add_divider()
 	add_mini_header("SEND A UNIT")
+	var location: LocationDefinition = Simulation.core.world.get_location(incident.location_id)
+	var nearest_unit_id: String = _nearest_available_unit_id(incident, location)
 	var any_shown := false
 	for unit: PoliceUnit in Simulation.core.resource_manager.units.values():
 		if unit.status == GameEnums.UnitStatus.ON_BREAK or unit.status == GameEnums.UnitStatus.UNAVAILABLE:
@@ -228,21 +255,46 @@ func _add_available_units_block(incident: Incident) -> void:
 		var row := HBoxContainer.new()
 		content.add_child(row)
 		var label := Label.new()
-		label.text = "%s%s -- %s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit)]
-		# Narrower than the old 260, and wrapping enabled: alongside a
-		# button (widest real case: "Reassign here"), 260 pushed the row to
-		# 429 wide against SidePanelView's 360-wide scroll area on a real
-		# phone -- confirmed by measuring the actual rendered row size.
-		label.custom_minimum_size = Vector2(170, 0)
+		var is_nearest: bool = unit.id == nearest_unit_id
+		label.text = "%s%s -- %s%s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit), "  (nearest)" if is_nearest else ""]
+		# Narrow enough that, alongside a button (widest real case:
+		# "Reassign here"), the row still fits the panel's own (now much
+		# narrower) 220px width.
+		label.custom_minimum_size = Vector2(90, 0)
+		label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
+		if is_nearest:
+			label.modulate = Color(0.5, 0.85, 0.5)
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD
 		row.add_child(label)
 		var send_button := Button.new()
 		send_button.text = "Send" if unit.current_incident_id == "" else "Reassign here"
-		send_button.custom_minimum_size = Vector2(0, 48)
+		send_button.custom_minimum_size = ACTION_BUTTON_SIZE
+		send_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 		send_button.pressed.connect(_on_send_unit.bind(unit.id))
 		row.add_child(send_button)
 	if not any_shown:
 		add_dim_line("(no other units free)")
+
+## Straight-line distance from each candidate unit's current position to
+## the incident's location -- a cheap, close-enough proxy for travel time
+## (the real path uses RoadGraph, which would be truer but isn't worth a
+## pathfind per unit just to sort a hint) among units this block already
+## considers sendable.
+func _nearest_available_unit_id(incident: Incident, location: LocationDefinition) -> String:
+	if location == null:
+		return ""
+	var nearest_id: String = ""
+	var nearest_dist: float = INF
+	for unit: PoliceUnit in Simulation.core.resource_manager.units.values():
+		if unit.status == GameEnums.UnitStatus.ON_BREAK or unit.status == GameEnums.UnitStatus.UNAVAILABLE:
+			continue
+		if incident.assigned_unit_ids.has(unit.id):
+			continue
+		var dist: float = unit.current_position.distance_to(location.position)
+		if dist < nearest_dist:
+			nearest_dist = dist
+			nearest_id = unit.id
+	return nearest_id
 
 func _on_send_unit(unit_id: String) -> void:
 	Simulation.commands().assign_unit_to_incident(unit_id, _current_incident_id)
@@ -283,6 +335,8 @@ func _type_def_for(type_id: String) -> IncidentTypeDefinition:
 func _add_specialist_block(incident: Incident) -> void:
 	add_divider()
 	add_mini_header("REQUEST SPECIALIST")
+	var type_def: IncidentTypeDefinition = _type_def_for(incident.type_id)
+	var recommended: int = type_def.recommended_specialist if type_def else -1
 	var manager: SpecialistManager = Simulation.core.specialist_manager
 	for pair in [
 		[GameEnums.SpecialistType.TRAFFIC, "Traffic"],
@@ -292,15 +346,17 @@ func _add_specialist_block(incident: Incident) -> void:
 		var unit: SpecialistUnit = manager.unit_for_type(pair[0])
 		if unit == null:
 			continue
+		var is_recommended: bool = pair[0] == recommended
 		var row := HBoxContainer.new()
 		content.add_child(row)
 		var label := Label.new()
-		label.text = "%s -- %s" % [unit.display_name, manager.status_text(unit)]
-		# Narrower than the old 260, and wrapping enabled: alongside a
-		# button (widest real case: "Reassign here"), 260 pushed the row to
-		# 429 wide against SidePanelView's 360-wide scroll area on a real
-		# phone -- confirmed by measuring the actual rendered row size.
-		label.custom_minimum_size = Vector2(170, 0)
+		label.text = "%s -- %s%s" % [unit.display_name, manager.status_text(unit), "  (fits this incident)" if is_recommended else ""]
+		# Narrow enough that, alongside a button, the row still fits the
+		# panel's own (now much narrower) 220px width.
+		label.custom_minimum_size = Vector2(90, 0)
+		label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
+		if is_recommended:
+			label.modulate = Color(0.5, 0.85, 0.5)
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD
 		row.add_child(label)
 		if unit.status == GameEnums.SpecialistStatus.COMMITTED and unit.committed_incident_id == incident.id:
@@ -310,7 +366,8 @@ func _add_specialist_block(incident: Incident) -> void:
 		if can_request:
 			var request_button := Button.new()
 			request_button.text = "Request"
-			request_button.custom_minimum_size = Vector2(0, 48)
+			request_button.custom_minimum_size = ACTION_BUTTON_SIZE
+			request_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 			request_button.pressed.connect(_on_request_specialist.bind(pair[0]))
 			row.add_child(request_button)
 
@@ -337,16 +394,16 @@ func _add_neighbourhood_block(incident: Incident) -> void:
 		content.add_child(row)
 		var label := Label.new()
 		label.text = officer.officer_name
-		# Narrower than the old 260, and wrapping enabled: alongside a
-		# button (widest real case: "Reassign here"), 260 pushed the row to
-		# 429 wide against SidePanelView's 360-wide scroll area on a real
-		# phone -- confirmed by measuring the actual rendered row size.
-		label.custom_minimum_size = Vector2(170, 0)
+		# Narrow enough that, alongside a button, the row still fits the
+		# panel's own (now much narrower) 220px width.
+		label.custom_minimum_size = Vector2(90, 0)
+		label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD
 		row.add_child(label)
 		var task_button := Button.new()
 		task_button.text = "Gather Intel"
-		task_button.custom_minimum_size = Vector2(0, 48)
+		task_button.custom_minimum_size = ACTION_BUTTON_SIZE
+		task_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 		task_button.pressed.connect(_on_task_neighbourhood.bind(officer.id))
 		row.add_child(task_button)
 	if not any_available:

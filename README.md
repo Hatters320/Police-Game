@@ -221,7 +221,7 @@ history, and a single line would have undone that. `ResourcesPanelView`/
 `IncidentsListPanelView` now genuinely stretch the full height between the
 new thin top bar and thin bottom bar (`SidePanelView.PANEL_TOP_Y`, derived
 directly from `HudView.HUD_BOTTOM` so the two can't drift apart) rather
-than stopping partway down, and narrowed further (180px -> 140px). Net
+than stopping partway down. Net
 effect: roughly twice as much of a real unit/incident list is visible at
 once without scrolling, and the map's visible centre strip is
 meaningfully larger despite the side panels staying permanently docked.
@@ -229,6 +229,44 @@ Verified against the real engine: every control row's real content width
 measures well under the 640px design canvas, both docked panels still
 open by default and stay live, and a detail panel still layers correctly
 above them at the new geometry.
+
+A further round of the same player feedback, against the live rebuild:
+the docked panels' text still only filled about half their width (narrowed
+180px -> 110px, `ResourcesPanelView`/`IncidentsListPanelView._panel_width()`),
+the comms bar needed a bit more side padding and height and to keep the
+newest line on screen rather than requiring a manual scroll down
+(`HudView._scroll_feed_to_bottom()`, deferred so it applies after the new
+line's layout settles, called after every `_append_feed()` -- still a real
+scroll position, not a lock, so scrolling back through history still
+works), and the incident detail popup specifically was "way too big" --
+the one panel whose own content, as opposed to the shared `SidePanelView`
+helpers every other panel already used, had never been touched: every ad-
+hoc `Label`/`Button` inside `IncidentPanelView` (and, for consistency,
+`UnitPanelView`/`NeighbourhoodPanelView`) was still sized against the
+project's 22px default font and 48-52px buttons. Shrunk throughout (11-
+13px font, 30-32px buttons) plus a dedicated, smaller `_panel_width()`/
+`_panel_height()` override (220x190, down from the shared detail-panel
+default of 240x200) so it now reads as overlaying the incident it's
+attached to rather than dominating the screen. `SidePanelView.add_line()`/
+`add_dim_line()` had the same 22px-default gap -- every panel using them
+(most of them) picked up the fix too.
+
+Two small pieces of real dispatch guidance went in alongside the shrink,
+since a smaller panel makes "which unit do I actually send" a more
+pointed question, not a less important one: `IncidentPanelView`'s SEND A
+UNIT list now tags whichever available unit is geographically closest to
+the incident (straight-line distance to the location -- a real pathfind
+per unit wasn't worth it just to rank a hint) as "(nearest)", and REQUEST
+SPECIALIST tags whichever of Traffic/Dog/Firearms actually suits the
+incident type as "(fits this incident)", driven by a new
+`IncidentTypeDefinition.recommended_specialist` data field (spec section
+59: a new fact about an incident type is data, not code) set for burglary
+(Dog -- tracking a suspect who's fled) and assault (Firearms -- officer
+safety). `ResourcesPanelView`'s travelling status also now reads "en route
+to incident" instead of the terser "travelling", which was already
+refreshing live on dispatch (from the `incident_state_changed` fix
+earlier in this pass) but wasn't saying so as plainly as the player asked
+for.
 
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.

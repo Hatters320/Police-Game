@@ -51,18 +51,19 @@ func refresh() -> void:
 func _add_officer_block(officer: Officer) -> void:
 	var name_label := Label.new()
 	name_label.text = "%s -- %s" % [officer.officer_name, _rank_text(officer.rank)]
-	name_label.add_theme_font_size_override("font_size", 18)
+	name_label.add_theme_font_size_override("font_size", 13)
 	content.add_child(name_label)
 	add_dim_line("Experience: %s   Driver: %s" % [_experience_text(officer.experience), "Yes" if officer.driver_qualified else "No"])
 
 	var fatigue_label := Label.new()
 	fatigue_label.text = "Fatigue: %d%s" % [int(officer.fatigue), "  (ELEVATED)" if officer.is_elevated_fatigue() else ""]
+	fatigue_label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 	fatigue_label.modulate = Color(0.9, 0.5, 0.25) if officer.is_elevated_fatigue() else Color(0.7, 0.7, 0.7)
 	content.add_child(fatigue_label)
 	add_dim_line("Morale: %d" % int(officer.morale))
 
 	var spacer := Control.new()
-	spacer.custom_minimum_size = Vector2(0, 6)
+	spacer.custom_minimum_size = Vector2(0, 4)
 	content.add_child(spacer)
 
 func _add_actions(unit: PoliceUnit) -> void:
@@ -70,19 +71,22 @@ func _add_actions(unit: PoliceUnit) -> void:
 		GameEnums.UnitStatus.ON_BREAK:
 			var return_button := Button.new()
 			return_button.text = "Return From Break"
-			return_button.custom_minimum_size = Vector2(0, 52)
+			return_button.custom_minimum_size = Vector2(0, 32)
+			return_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 			return_button.pressed.connect(_on_return_from_break)
 			content.add_child(return_button)
 		GameEnums.UnitStatus.AVAILABLE, GameEnums.UnitStatus.PATROL:
 			var break_button := Button.new()
 			break_button.text = "Send For Break"
-			break_button.custom_minimum_size = Vector2(0, 52)
+			break_button.custom_minimum_size = Vector2(0, 32)
+			break_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 			break_button.pressed.connect(_on_send_for_break)
 			content.add_child(break_button)
 			if unit.status == GameEnums.UnitStatus.PATROL:
 				var recall_button := Button.new()
 				recall_button.text = "Recall to Station"
-				recall_button.custom_minimum_size = Vector2(0, 52)
+				recall_button.custom_minimum_size = Vector2(0, 32)
+				recall_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
 				recall_button.pressed.connect(_on_recall)
 				content.add_child(recall_button)
 		_:
