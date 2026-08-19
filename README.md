@@ -543,6 +543,113 @@ performance checks), so its absolute FPS numbers aren't a real-device
 result, only a same-sandbox before/after comparison -- a genuine
 real-device check is still open.
 
+A follow-up report against that live build was blunt and correct on both
+counts: "the cars have definitely not worked, they are too big and are
+just static," and separately, the districts still had "massive gaps"
+between them despite the earlier compaction pass -- with a screenshot
+showing a taxi visibly bigger than the houses next to it, sitting still
+in the middle of a street.
+
+Re-measuring the car-kit's models directly (`hatchback-sports`, `taxi`,
+`van`, `delivery`, plus the already-integrated `police`/`ambulance`)
+confirmed it: every one of them is 2.75-3.25 units long against ~1-1.4
+unit-wide suburban houses and a 1-unit GridMap cell, all from the same
+kit, all equally oversized -- not a one-off bad model. And a `GridMap`
+cell, which is what "parked" cars were, structurally cannot move
+regardless of scale; fixing the scale alone was never going to produce
+moving traffic. So parked GridMap cars were dropped entirely in favour of
+individually instanced `RoadWalker` actors (`scripts/ui/road_walker.gd`)
+that continuously traverse the same `road_nodes`/`road_edges` graph the
+2D map and gameplay layer already use -- picking a random adjacent edge
+on arrival, forever, no destination or pathfinding needed for ambient
+traffic. A small fixed count (10 cars) keeps this from reintroducing the
+GridMap-batching performance fix's whole reason for existing. Building
+each car from its full source scene rather than just its first mesh
+(the pattern that worked fine for single-mesh buildings/trees) turned up
+a second, separately real bug along the way: the car-kit's models are
+multi-part -- a body plus four separate wheel meshes -- so grabbing "the
+first `MeshInstance3D`" silently rendered every car as just a stray wheel
+or door panel. Both bugs are why the cars in the screenshot read as an
+odd, motionless yellow blob instead of a car.
+
+People got the same treatment. The previous round's honest write-up
+above explains why `kenney_animated-characters-protagonists` shipped
+disabled -- no baked idle pose, so instantiating it directly is a
+T-pose. Fixing it needed the exact mechanism spelled out there: importing
+`idle.fbx`/`run.fbx` as separate clips and driving them through a real
+runtime `AnimationPlayer`. The one non-obvious part, found by testing it
+directly rather than guessing: that `AnimationPlayer` has to be added as
+a sibling of the character's `Root` node, not nested inside it -- the
+clip's own animation tracks are baked as `Root/Skeleton3D:<bone>` paths
+relative to wherever the player sits, so nesting it inside `Root` doubles
+that first path segment and every track silently fails to resolve
+(confirmed both ways with a headless bone-pose check before touching the
+real scene). With that working, pedestrians are `RoadWalker` actors too,
+looping the run clip (there's no separate walk clip in this kit; run,
+looped, reads fine at an unhurried `PERSON_SPEED`) and offset to the side
+of the road so they read as a sidewalk instead of walking down the middle
+of the carriageway cars use.
+
+Scale needed a second pass once both were actually moving and visible.
+The strict, physically-derived figures (car ≈0.25x native, brings the
+longest car in just under one grid cell; person ≈0.11x native, a person
+a third of a house's height) are the "objectively correct" proportions,
+measured the same way as everything else in this file -- but tested
+against a real Web export, both read as an almost invisible speck next
+to the building grid, to the point where a temporary 10x-scale render was
+needed just to confirm the RoadWalker/rendering pipeline itself was
+working at all (it was; screenshot showed giant cars in exactly the right
+place). Shipped at 0.4x/0.2x instead -- still meaningfully smaller than
+the old native scale and smaller than a house, but an actual car- and
+person-sized silhouette you can see moving on the road, not a
+technically-correct dot. Legibility beat strict proportion here.
+
+The district-gap complaint was a real gap in the *previous* fix, not a
+regression: `WORLD_SCALE` converts the whole town through one shared
+scale factor, so shrinking it further shrinks every district's own
+content by the same ratio it shrinks the gaps between them -- it cannot
+change how big a gap *reads* relative to the district sitting next to it,
+only how big everything is on screen together. Actually closing the gaps
+needed to treat inter-district spacing as its own problem, separate from
+in-district density: `City3DView._compute_district_layout()` now runs a
+small force-directed relaxation once at build time -- each district (a
+real circle, per `WestfordMapFactory`'s own `_circle_polygon` boundary)
+is pulled toward the town's overall centroid a little at a time, with a
+pairwise overlap-resolution pass after each pull so no two districts'
+circles (plus a small margin, enough to still read as a real gap/road,
+not a seam) ever end up closer than they safely can. This settles into a
+packed layout where every gap has closed as far as its own local slack
+allows, which a single uniform scale can't do -- the tightest-already
+pair of districts (south_residential/rural_outskirts, both close and
+both large) capped how far a global shrink could go before that one pair
+started overlapping, while every other pair barely moved. The result is
+a rigid per-district translation applied on top of the existing
+`world_to_3d()` conversion, so it moves whole districts closer together
+without touching anything about their own internal building grid/road
+layout -- buildings, GridMap cells, and each district's own road nodes
+all pick it up automatically via `_world_to_3d_in_district()`. The
+arterial road ribbon connecting district hubs is built from those same
+compacted node positions, so the connecting roads visibly shorten right
+along with the gap, instead of a static-length ribbon now looking too
+long for the space it's spanning.
+
+Verifying the moving traffic/pedestrians actually worked, rather than
+just trusting the code, took more than the usual screenshot: a real car-
+or person-sized object turned out to be genuinely hard to pick out by eye
+in a single screenshot of a dense town at normal camera zoom, even though
+the feature was working correctly the whole time. What actually settled
+it, in order: (1) a direct scene-tree inspection confirming 10 cars/8
+pedestrians exist with the correct full multi-part meshes and a
+correctly non-T-posed skeleton; (2) manually advancing a `RoadWalker`'s
+`_process()` by a simulated second and confirming its position changed;
+(3) the temporary 10x-scale render described above, proving the
+rendering path itself places them correctly; and (4) a pixel-diff between
+two real Web-export screenshots taken 5 real seconds apart, which showed
+a handful of small, tightly localized changed regions (tens of pixels
+each, not a global lighting drift) sitting exactly on road corridors --
+consistent with real objects moving along them. No single one of these
+was fully conclusive by itself; together they are.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
