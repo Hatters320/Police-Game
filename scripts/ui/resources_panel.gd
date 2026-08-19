@@ -1,24 +1,58 @@
 class_name ResourcesPanelView
 extends SidePanelView
-## Always-reachable roster (left side, per real playtesting feedback: a
-## permanent left/right/bottom desktop layout doesn't fit a phone screen
-## alongside a usable map, so this is an open-on-demand panel instead of
-## permanent chrome) -- every patrol unit, specialist unit, and
-## neighbourhood officer with its current status and location in one
-## scrollable list. Tapping a unit/specialist row pans the map to it and
-## opens its existing detail panel (UnitPanelView); neighbourhood officers
-## don't have individual per-officer detail beyond NeighbourhoodPanelView,
-## so their rows are informational only.
+## Always-docked roster (left side, matching the player mockup's
+## permanent desktop position -- just sized for a phone rather than
+## dropped for an open-on-demand panel) -- every patrol unit, specialist
+## unit, and neighbourhood officer with its current status and location in
+## one scrollable list. Tapping a unit/specialist row pans the map to it
+## and opens its existing detail panel (UnitPanelView), which draws above
+## this panel rather than closing it. Neighbourhood officers don't have
+## individual per-officer detail beyond NeighbourhoodPanelView, so their
+## rows are informational only.
 
 var _map_view: MapView
 var _unit_panel: UnitPanelView
 
+## Colour-coded status accent per unit.status, standing in for the
+## mockup's per-unit-type icon art since none is available this pass --
+## green reads "out and working", amber "en route", red "committed to a
+## scene", blue "resting", grey "off the board".
+const STATUS_COLORS := {
+	GameEnums.UnitStatus.AVAILABLE: Color(0.3, 0.75, 0.3),
+	GameEnums.UnitStatus.PATROL: Color(0.3, 0.75, 0.3),
+	GameEnums.UnitStatus.TRAVELLING: Color(0.95, 0.55, 0.1),
+	GameEnums.UnitStatus.ON_SCENE: Color(0.85, 0.15, 0.15),
+	GameEnums.UnitStatus.ON_BREAK: Color(0.3, 0.6, 0.9),
+	GameEnums.UnitStatus.UNAVAILABLE: Color(0.5, 0.5, 0.5),
+}
+const SPECIALIST_ACCENT := Color(0.65, 0.45, 0.85)
+const NEIGHBOURHOOD_ACCENT := Color(0.4, 0.75, 0.7)
+
 func _panel_anchor() -> int:
 	return Control.PRESET_TOP_LEFT
+
+## Slim docked strip, not the 360-wide default every detail panel wants --
+## this is always on screen, so it needs to leave the map usable beside it.
+func _panel_width() -> float:
+	return 180.0
 
 func wire(map_view: MapView, unit_panel: UnitPanelView) -> void:
 	_map_view = map_view
 	_unit_panel = unit_panel
+	# Always-docked now rather than opened fresh each time (which used to
+	# guarantee up-to-date content just by calling refresh() on open()) --
+	# needs to actually stay live while visible. incident_state_changed
+	# covers a dispatch/arrival (both flip unit.status the instant they
+	# happen, not on the next tick), tick_completed covers everything else
+	# that changes between ticks (patrol movement, district crossed), and
+	# _unit_panel closing covers a break/recall made from its controls.
+	Simulation.core.incident_manager.incident_state_changed.connect(func(_a, _b, _c): _refresh_if_open())
+	Simulation.core.tick_completed.connect(_refresh_if_open)
+	_unit_panel.closed.connect(_refresh_if_open)
+
+func _refresh_if_open() -> void:
+	if is_open():
+		refresh()
 
 func open() -> void:
 	if _map_view:
@@ -30,38 +64,27 @@ func refresh() -> void:
 	if not is_open():
 		return
 	clear_content()
-	add_title("Resources")
-	add_close_button()
+	add_header_bar("Resources")
 
-	add_mini_header("PATROL UNITS")
 	var resource_manager: ResourceManager = Simulation.core.resource_manager
 	for unit: PoliceUnit in resource_manager.units.values():
-		_add_unit_row(unit)
+		_add_unit_card(unit)
 
 	var specialist_manager: SpecialistManager = Simulation.core.specialist_manager
 	if not specialist_manager.units.is_empty():
 		add_divider()
-		add_mini_header("SPECIALIST UNITS")
 		for unit: SpecialistUnit in specialist_manager.units.values():
-			add_line("%s -- %s" % [unit.display_name, specialist_manager.status_text(unit)])
+			add_card(SPECIALIST_ACCENT, unit.display_name, specialist_manager.status_text(unit))
 
 	var neighbourhood_manager: NeighbourhoodManager = Simulation.core.neighbourhood_manager
 	if not neighbourhood_manager.officers.is_empty():
 		add_divider()
-		add_mini_header("NEIGHBOURHOOD TEAM")
 		for officer: NeighbourhoodOfficer in neighbourhood_manager.officers.values():
-			add_line("%s -- %s" % [officer.officer_name, neighbourhood_manager.status_text(officer)])
+			add_card(NEIGHBOURHOOD_ACCENT, officer.officer_name, neighbourhood_manager.status_text(officer))
 
-func _add_unit_row(unit: PoliceUnit) -> void:
-	var row := HBoxContainer.new()
-	content.add_child(row)
-	var button := Button.new()
-	button.text = "%s -- %s -- %s" % [unit.callsign, _status_text(unit), _location_text(unit)]
-	button.flat = true
-	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	button.add_theme_font_size_override("font_size", 15)
-	button.pressed.connect(_on_unit_row_pressed.bind(unit.id))
-	row.add_child(button)
+func _add_unit_card(unit: PoliceUnit) -> void:
+	var accent: Color = STATUS_COLORS.get(unit.status, Color.GRAY)
+	add_card(accent, unit.callsign, "%s -- %s" % [_status_text(unit), _location_text(unit)], _on_unit_row_pressed.bind(unit.id))
 
 func _status_text(unit: PoliceUnit) -> String:
 	match unit.status:
@@ -100,7 +123,6 @@ func _on_unit_row_pressed(unit_id: String) -> void:
 	var unit: PoliceUnit = Simulation.core.resource_manager.get_unit(unit_id)
 	if unit == null:
 		return
-	close()
 	if _map_view:
 		_map_view.pan_camera_to(unit.current_position)
 	if _unit_panel:

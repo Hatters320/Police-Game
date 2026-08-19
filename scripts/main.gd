@@ -148,7 +148,7 @@ func _ready() -> void:
 	add_child(map_view)
 	map_view.setup(world, incident_panel, unit_panel)
 	map_view.set_camera(camera)
-	map_view.wire_other_panels(resources_panel, incidents_list_panel, neighbourhood_panel)
+	map_view.wire_other_panels(neighbourhood_panel)
 	neighbourhood_panel.wire(map_view)
 	resources_panel.wire(map_view, unit_panel)
 	incidents_list_panel.wire(map_view, incident_panel)
@@ -158,8 +158,15 @@ func _ready() -> void:
 	hud_view.wire_overlays(map_view)
 	hud_view.wire_zoom_controls(func(): _zoom_by(ZOOM_STEP_IN), func(): _zoom_by(ZOOM_STEP_OUT))
 	hud_view.wire_neighbourhood_panel(func(): neighbourhood_panel.open())
-	hud_view.wire_resources_panel(func(): resources_panel.open())
-	hud_view.wire_incidents_panel(func(): incidents_list_panel.open())
+	# Resources/Incidents are always-docked by default now (open in
+	# _on_briefing_confirmed below) -- these buttons toggle them off/back
+	# on, for a player who wants to reclaim map space on a small screen.
+	hud_view.wire_resources_panel(func():
+		if resources_panel.is_open(): resources_panel.close()
+		else: resources_panel.open())
+	hud_view.wire_incidents_panel(func():
+		if incidents_list_panel.is_open(): incidents_list_panel.close()
+		else: incidents_list_panel.open())
 	hud_view.hide()
 
 	_begin_briefing(next_shift_number)
@@ -280,6 +287,11 @@ func _on_briefing_confirmed() -> void:
 	# displayed before this shift existed) until the first simulation
 	# tick fires, up to ~1 real second later at 1x speed.
 	hud_view.refresh_stats()
+	# Always-docked chrome (spec's mockup asked for the same permanent
+	# position as its desktop render) -- open by default the moment play
+	# actually starts, not on the briefing/debrief screens either side of it.
+	resources_panel.open()
+	incidents_list_panel.open()
 
 func _on_shift_ended(summary: Dictionary) -> void:
 	hud_view.hide()

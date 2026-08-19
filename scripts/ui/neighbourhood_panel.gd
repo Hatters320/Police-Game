@@ -9,6 +9,11 @@ extends SidePanelView
 
 var _map_view: MapView
 
+## Draws above the always-docked Resources/Incidents panels, which stay
+## visible underneath rather than closing whenever this opens.
+func _panel_layer() -> int:
+	return 4
+
 func wire(map_view: MapView) -> void:
 	_map_view = map_view
 

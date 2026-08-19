@@ -72,14 +72,44 @@ func _ready() -> void:
 	# (see MAX_FEED_ENTRIES below), and each incident-related line is
 	# tappable to open that incident directly, since finding its marker on
 	# a busy map is a second, harder way to reach the same thing.
+	#
+	# Docked bottom-centre, in the gap between ResourcesPanelView and
+	# IncidentsListPanelView (each a 180-wide dock with a 20px margin, per
+	# their _panel_width() overrides) -- matching the mockup's permanent
+	# "COMMUNICATIONS" box position rather than spanning the full width
+	# behind them.
+	const COMMS_LEFT := 210.0
+	const COMMS_WIDTH := 220.0
+	var feed_panel := PanelContainer.new()
+	var feed_style := StyleBoxFlat.new()
+	feed_style.bg_color = Color(0.05, 0.07, 0.1, 0.85)
+	feed_style.border_color = Color(0.09, 0.16, 0.28)
+	feed_style.set_border_width_all(2)
+	feed_style.content_margin_left = 8
+	feed_style.content_margin_right = 8
+	feed_style.content_margin_top = 4
+	feed_style.content_margin_bottom = 4
+	feed_panel.add_theme_stylebox_override("panel", feed_style)
+	feed_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	feed_panel.position = Vector2(COMMS_LEFT, -100)
+	feed_panel.custom_minimum_size = Vector2(COMMS_WIDTH, 90)
+	add_child(feed_panel)
+
+	var feed_column := VBoxContainer.new()
+	feed_panel.add_child(feed_column)
+
+	var comms_header := Label.new()
+	comms_header.text = "COMMUNICATIONS"
+	comms_header.add_theme_font_size_override("font_size", 13)
+	comms_header.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
+	feed_column.add_child(comms_header)
+
 	var feed_scroll := ScrollContainer.new()
-	feed_scroll.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	feed_scroll.position = Vector2(20, -90)
-	feed_scroll.custom_minimum_size = Vector2(460, 80)
-	add_child(feed_scroll)
+	feed_scroll.custom_minimum_size = Vector2(COMMS_WIDTH - 16.0, 68)
+	feed_column.add_child(feed_scroll)
 
 	_feed_list = VBoxContainer.new()
-	_feed_list.custom_minimum_size = Vector2(460, 0)
+	_feed_list.custom_minimum_size = Vector2(COMMS_WIDTH - 16.0, 0)
 	feed_scroll.add_child(_feed_list)
 
 	_overlay_row = HBoxContainer.new()
@@ -280,8 +310,8 @@ func _append_feed(text: String, color: Color = Color.WHITE, incident_id: String 
 		button.text = text
 		button.flat = true
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		button.clip_text = false
-		button.add_theme_font_size_override("font_size", 16)
+		button.autowrap_mode = TextServer.AUTOWRAP_WORD
+		button.add_theme_font_size_override("font_size", 12)
 		button.modulate = color
 		button.pressed.connect(func():
 			if _map_view:
@@ -292,7 +322,7 @@ func _append_feed(text: String, color: Color = Color.WHITE, incident_id: String 
 		return
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 16)
+	label.add_theme_font_size_override("font_size", 12)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD
 	label.modulate = color
 	_feed_list.add_child(label)

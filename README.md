@@ -161,6 +161,42 @@ the camera and opens the correct detail panel with the other panel closed,
 and dispatching + a unit arriving produces the expected two radio lines
 in the feed.
 
+The player then compared the open-on-demand version above against their
+mockup directly and said it wasn't close enough -- same position, sized
+for a phone, was the actual ask, not a collapsed-by-default toggle.
+Reworked to match: `ResourcesPanelView`/`IncidentsListPanelView` now open
+automatically the moment a shift starts and stay docked, narrowed from
+360px to a 180px strip (`_panel_width()`, a new `SidePanelView` override
+alongside the existing anchor/height ones) so the map remains visible
+between them. Since they no longer close, `MapView.close_other_panels()`
+now only arbitrates the three detail overlays (Incident/Unit/
+Neighbourhood) -- those draw on a higher `CanvasLayer` (`_panel_layer()`,
+another new override) so opening one visibly sits on top of the docked
+panels instead of hiding them. Restyled both with the mockup's visual
+language as closely as static vector drawing allows without real icon
+art: a dark header bar per panel, and a colour-accented card per row
+(`SidePanelView.add_card()`) -- green/amber/red/blue by unit status,
+priority colour by incident, in place of plain text lines. The event feed
+got the same treatment: a bordered, titled "COMMUNICATIONS" box, resized
+and repositioned into the gap between the two docked panels rather than
+spanning underneath them. The `Resources`/`Incidents` HUD buttons still
+exist, now as an off/on toggle for a player who wants to reclaim map space
+rather than an open trigger. Docking them permanently also meant they
+had to become genuinely live, which opening-on-demand had made a non-issue
+(every open() call refreshed automatically) -- both now also refresh on
+the same incident signals as the map, plus `tick_completed`, plus (for
+Resources) `UnitPanelView.closed`, so a new incident, a dispatch, or a
+break/recall are all reflected without needing to close and reopen.
+Verified against the real engine: both panels are open immediately after
+briefing confirmation, a detail panel drawing over them doesn't close
+them, and reopens/refreshes correctly once closed again.
+
+This does trade away map real estate a permanent phone layout can't avoid
+losing somewhere -- the visible map area between the two docked panels
+and above the comms box is meaningfully smaller than before. The
+`Resources`/`Incidents` toggle buttons are the escape valve: either can be
+hidden to get that space back without losing the other.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a

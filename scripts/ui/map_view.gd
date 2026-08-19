@@ -98,8 +98,6 @@ var _current_overlay: OverlayType = OverlayType.NONE
 var _overlay_noise: Dictionary = {} # district_id -> float
 var _overlay_tick_counter: int = 0
 var _camera: Camera2D
-var _resources_panel: ResourcesPanelView
-var _incidents_list_panel: IncidentsListPanelView
 var _neighbourhood_panel: NeighbourhoodPanelView
 
 func setup(world: WorldMapData, incident_panel: IncidentPanelView, unit_panel: UnitPanelView) -> void:
@@ -115,19 +113,18 @@ func setup(world: WorldMapData, incident_panel: IncidentPanelView, unit_panel: U
 	_spawn_unit_markers()
 	_spawn_existing_incident_markers()
 
-## Called once by main.gd after the resources/incidents-list/neighbourhood
-## panels exist, so every "open a side panel" path (tapping a map marker,
-## a feed line, or a resources/incidents-list row) can close whichever of
-## the OTHER panels happens to already be open first -- five panels are
-## only ever meant to show one at a time; the phone screen has no room to
-## show two full-height overlays together.
-func wire_other_panels(resources_panel: ResourcesPanelView, incidents_list_panel: IncidentsListPanelView, neighbourhood_panel: NeighbourhoodPanelView) -> void:
-	_resources_panel = resources_panel
-	_incidents_list_panel = incidents_list_panel
+## Called once by main.gd after the neighbourhood panel exists.
+## Resources/Incidents are always-docked chrome now (spec's mockup asked
+## for the same permanent position as its desktop render, just sized for
+## a phone) -- they stay visible the whole time and never need closing, so
+## close_other_panels below only ever needs to arbitrate between the three
+## detail overlays (Incident/Unit/Neighbourhood), which still are mutually
+## exclusive and draw on a higher CanvasLayer, on top of the docked ones.
+func wire_other_panels(neighbourhood_panel: NeighbourhoodPanelView) -> void:
 	_neighbourhood_panel = neighbourhood_panel
 
 func close_other_panels(except: Node = null) -> void:
-	for panel in [_incident_panel, _unit_panel, _resources_panel, _incidents_list_panel, _neighbourhood_panel]:
+	for panel in [_incident_panel, _unit_panel, _neighbourhood_panel]:
 		if panel and panel != except and panel.is_open():
 			panel.close()
 

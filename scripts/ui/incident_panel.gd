@@ -11,6 +11,11 @@ extends SidePanelView
 
 var _current_incident_id: String = ""
 
+## Draws above the always-docked Resources/Incidents panels, which stay
+## visible underneath rather than closing whenever this opens.
+func _panel_layer() -> int:
+	return 4
+
 func open(incident_id: String) -> void:
 	_current_incident_id = incident_id
 	_show_panel()
