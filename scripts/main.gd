@@ -25,7 +25,8 @@ var day_night_overlay: DayNightOverlay
 var weather_overlay: WeatherOverlay
 var audio_manager: AudioManager
 var rotate_prompt: RotatePromptOverlay
-var camera: Camera2D
+var camera: Camera3D
+var city_3d: City3DView
 var _briefing_view: BriefingView
 var _debrief_view: DebriefView
 
@@ -35,14 +36,21 @@ var _debrief_view: DebriefView
 ## should take a handful of taps, not fifteen-plus.
 const ZOOM_STEP_IN := 1.25
 const ZOOM_STEP_OUT := 0.8
-## 0.05 fits the whole 6-district town (bounding box roughly
-## x:-3800..3850, y:-3500..6400) with a little room to breathe -- the old
-## 0.02 let pinch/the "-" button zoom out to 2.5x further than that, past
-## the town's edge into unrendered empty space (reported as a plain grey
-## screen on a real phone). 0.04 keeps a bit of extra margin beyond the
-## whole-town fit without reaching that empty void.
-const MIN_ZOOM := 0.04
-const MAX_ZOOM := 2.5
+## Orthogonal Camera3D's "size" is the vertical extent of the view in 3D
+## world-units (KEEP_HEIGHT), the inverse sense of the old Camera2D.zoom
+## (bigger size = more of the world visible = more zoomed OUT, whereas
+## bigger zoom used to mean more zoomed IN) -- see _zoom_by and
+## _effective_zoom_2d below for the conversion. Starting points only;
+## like the old MIN_ZOOM/MAX_ZOOM these were tuned by feel against the
+## town's rough footprint (bounding box x:-3800..3850, y:-3500..6400,
+## i.e. ~344x445 3D units at City3DView.WORLD_SCALE) and will likely need
+## a real-device pass same as the 2D constants did.
+## Confirmed against a real Web export screenshot: Kenney's buildings read
+## as clearly recognizable low-poly shapes around size 2-3 (a block or two
+## fills the screen), shrink to indistinguishable dots by size ~20+. 3/220
+## bracket "tight street-level" through "roughly whole-town fit".
+const MIN_CAMERA_SIZE := 3.0 # most zoomed in
+const MAX_CAMERA_SIZE := 220.0 # most zoomed out, roughly whole-town fit
 
 ## A press/touch that moves less than this many screen pixels before
 ## release is a tap (dispatch to MapView.handle_tap); anything past it is
@@ -55,7 +63,7 @@ var _pointer_start_screen: Vector2 = Vector2.ZERO
 var _pointer_dragged: bool = false
 var _touch_points: Dictionary = {} # touch index -> Vector2 screen position
 var _pinch_start_distance: float = 0.0
-var _pinch_start_zoom: float = 0.0
+var _pinch_start_size: float = 0.0
 
 ## True on a real touchscreen device -- set once in _ready(). Gates the
 ## mouse-event branches in _unhandled_input below so our own map gesture
@@ -107,16 +115,35 @@ func _ready() -> void:
 	# side effect of running.
 	var next_shift_number: int = SaveManager.load_into(Simulation.core)
 
-	camera = Camera2D.new()
+	city_3d = City3DView.new()
+	add_child(city_3d)
+	city_3d.build(world)
+
+	camera = Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	# Fixed downward tilt, never changed after this -- MapView.CAMERA_PITCH_DEG
+	# /CAMERA_DISTANCE are the single source of truth for this offset (see
+	# map_view.gd's doc comment on those consts), since pan_camera_to there
+	# needs to reproduce the same math for the list-panel "jump to this
+	# location" shortcut.
+	camera.rotation = Vector3(deg_to_rad(MapView.CAMERA_PITCH_DEG), 0, 0)
 	# Starts centred on Town Centre / the police station (both sit at the
-	# world origin) at a close-enough zoom to actually read buildings, unit
-	# markers, and location labels -- the old default zoomed out to fit the
-	# entire 6-district town in frame, which was illegible on a real phone
-	# screen (confirmed by real mobile playtesting, not just a screenshot at
-	# desktop resolution). Zoom out via scroll/the HUD's -/+ buttons to see
-	# the wider town from here.
-	camera.position = Vector2(0, 0)
-	camera.zoom = Vector2(0.18, 0.18)
+	# world origin), same as the old 2D default's intent -- close enough to
+	# actually read buildings/unit markers, not a whole-town fit. Zoom out
+	# via scroll/the HUD's -/+ buttons to see the wider town from here.
+	# Kenney's buildings measure roughly 1 3D-unit across (see City3DView's
+	# doc comment on NAMED_BUILDING_VARIANTS) -- 22 keeps several of them
+	# individually readable rather than reduced to single pixels, confirmed
+	# against a real Web export screenshot (buildings at size 90 rendered as
+	# indistinguishable dots).
+	# Kenney's buildings read as clearly recognizable low-poly shapes around
+	# size 2-3 (confirmed against a real Web export screenshot); 8 backs off
+	# from that a bit further so a few blocks/roads are visible at once
+	# rather than a single tight street-level view, matching the old 2D
+	# default's "close enough to read buildings" intent without being
+	# claustrophobic. Zoom out via scroll/the HUD's -/+ buttons from here.
+	camera.size = 8.0
+	camera.position = MapView.camera_ground_offset()
 	add_child(camera)
 	camera.make_current()
 
@@ -146,6 +173,17 @@ func _ready() -> void:
 
 	map_view = MapView.new()
 	add_child(map_view)
+	# No Camera2D drives the viewport any more (City3DView owns the visible
+	# scene, via Camera3D above), so the canvas transform defaults to
+	# identity -- UnitMarker/IncidentMarker's raw 2D world-unit positions
+	# would otherwise land directly on-screen as stray pixel-coordinate
+	# dots for anything within screen-size of the origin (confirmed via a
+	# real Web export screenshot: a cluster of small dots exactly where
+	# Town Centre/the police station, at the world origin, would land under
+	# an identity transform). Hiding the whole node cascades to every
+	# marker child without touching any of their hit-testing/panel-opening
+	# logic below, none of which reads .visible.
+	map_view.visible = false
 	map_view.setup(world, incident_panel, unit_panel)
 	map_view.set_camera(camera)
 	map_view.wire_other_panels(neighbourhood_panel)
@@ -208,13 +246,13 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 	else:
 		_pointer_down = false
 		if not _pointer_dragged:
-			map_view.handle_tap(get_global_mouse_position(), camera.zoom.x)
+			map_view.handle_tap(_screen_to_ground(event.position), _effective_zoom_2d())
 
 func _handle_drag_delta(relative: Vector2, current_screen: Vector2) -> void:
 	if current_screen.distance_to(_pointer_start_screen) > TAP_DRAG_THRESHOLD:
 		_pointer_dragged = true
 	if _pointer_dragged:
-		camera.position -= relative / camera.zoom
+		_pan_by_screen_delta(relative)
 
 func _handle_screen_touch(event: InputEventScreenTouch) -> void:
 	if event.pressed:
@@ -225,15 +263,16 @@ func _handle_screen_touch(event: InputEventScreenTouch) -> void:
 			_pointer_dragged = false
 		elif _touch_points.size() == 2:
 			_pinch_start_distance = _current_pinch_distance()
-			_pinch_start_zoom = camera.zoom.x
+			_pinch_start_size = camera.size
 		return
 	var was_single_tap: bool = _touch_points.size() == 1 and not _pointer_dragged
+	var tap_screen_pos: Vector2 = event.position
 	_touch_points.erase(event.index)
 	if _touch_points.is_empty():
 		_pointer_down = false
 		_pinch_start_distance = 0.0
 	if was_single_tap:
-		map_view.handle_tap(get_global_mouse_position(), camera.zoom.x)
+		map_view.handle_tap(_screen_to_ground(tap_screen_pos), _effective_zoom_2d())
 
 func _handle_screen_drag(event: InputEventScreenDrag) -> void:
 	_touch_points[event.index] = event.position
@@ -253,13 +292,65 @@ func _handle_pinch() -> void:
 	if _pinch_start_distance <= 0.0 or distance <= 0.0:
 		return
 	_pointer_dragged = true # two-finger contact is never a tap
-	var new_zoom: float = clampf(_pinch_start_zoom * (distance / _pinch_start_distance), MIN_ZOOM, MAX_ZOOM)
-	camera.zoom = Vector2(new_zoom, new_zoom)
+	# Camera3D.size shrinks to zoom IN (opposite sense to the old
+	# Camera2D.zoom), so spreading fingers apart (distance grows) divides
+	# the starting size down rather than multiplying it up.
+	var new_size: float = clampf(_pinch_start_size / (distance / _pinch_start_distance), MIN_CAMERA_SIZE, MAX_CAMERA_SIZE)
+	camera.size = new_size
 
 ## Shared by scroll-wheel input (desktop) and the HUD's +/- buttons
 ## (touch/mobile, which have no scroll-wheel equivalent -- spec section 3/56).
+## factor > 1 means zoom IN, matching what every call site already expects
+## from the old Camera2D.zoom convention -- since a bigger Camera3D.size is
+## more zoomed OUT, zooming in divides rather than multiplies.
 func _zoom_by(factor: float) -> void:
-	camera.zoom = (camera.zoom * factor).clamp(Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
+	camera.size = clampf(camera.size / factor, MIN_CAMERA_SIZE, MAX_CAMERA_SIZE)
+
+## Screen tap -> world ground position, via a ray/Y=0-plane intersection --
+## the 3D equivalent of the old direct Camera2D->world coordinate read.
+## Returns a position in the original 2D "world unit" space (not 3D scene
+## units) since map_view.handle_tap and everything downstream of it
+## (marker hit-testing, panel opening) still operates entirely in that
+## space, unchanged by this whole 3D migration.
+func _screen_to_ground(screen_pos: Vector2) -> Vector2:
+	var origin: Vector3 = camera.project_ray_origin(screen_pos)
+	var dir: Vector3 = camera.project_ray_normal(screen_pos)
+	if absf(dir.y) < 0.0001:
+		return Vector2.ZERO
+	var t: float = -origin.y / dir.y
+	var hit: Vector3 = origin + dir * t
+	return Vector2(hit.x, hit.z) / City3DView.WORLD_SCALE
+
+## The Camera2D.zoom-equivalent MapView.handle_tap expects, for its
+## click_radius = TAP_RADIUS_SCREEN_PX / zoom math -- that math is
+## unchanged from the 2D system, just fed a value computed from
+## Camera3D.size/viewport height instead of a Camera2D.zoom directly.
+func _effective_zoom_2d() -> float:
+	if camera.size <= 0.0:
+		return 1.0
+	var viewport_height: float = get_viewport().get_visible_rect().size.y
+	return viewport_height * City3DView.WORLD_SCALE / camera.size
+
+## Pans the camera along the ground plane so world content tracks the
+## finger/mouse 1:1 on screen in both directions -- the forward/back
+## (screen-Y) direction needs a foreshortening correction the lateral
+## (screen-X) one doesn't, since the camera's fixed downward tilt means
+## equal ground-plane distances along its view direction cover less
+## vertical screen space than the same distance sideways.
+func _pan_by_screen_delta(relative: Vector2) -> void:
+	var viewport_height: float = get_viewport().get_visible_rect().size.y
+	if viewport_height <= 0.0:
+		return
+	var world_units_per_px: float = camera.size / viewport_height
+	var basis_y: Vector3 = camera.global_transform.basis.y
+	var ground_forward: Vector3 = Vector3(basis_y.x, 0.0, basis_y.z)
+	var foreshortening: float = ground_forward.length()
+	if foreshortening < 0.0001:
+		return
+	ground_forward /= foreshortening
+	var ground_right: Vector3 = camera.global_transform.basis.x
+	camera.position -= ground_right * (relative.x * world_units_per_px)
+	camera.position -= ground_forward * (relative.y * world_units_per_px / foreshortening)
 
 func _begin_briefing(shift_number: int) -> void:
 	var roster: Array[Officer] = OfficerFactory.build_shift_roster()

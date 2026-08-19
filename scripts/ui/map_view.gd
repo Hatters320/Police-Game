@@ -1,12 +1,19 @@
 class_name MapView
 extends Node2D
-## Draws the map (roads, locations, district boundaries) and manages
-## UnitMarker/IncidentMarker child nodes reactively via SimulationCore's
-## signals (spec section 35-37). Everything is drawn with simple
-## primitives -- readable and mobile-friendly matters far more than
-## polish at this stage (spec section 54) -- except the police station,
-## which uses a real illustration (data/art/police_station.png) since the
-## player has exactly one and it's their home base.
+## Owns unit/incident marker DATA and all tap-to-select/panel-opening
+## logic (spec section 35-37) -- it no longer draws anything itself.
+## City3DView (a real Node3D scene built from Kenney low-poly kits, per
+## the player's request to move from the flat 2D map to a proper 3D city)
+## now owns 100% of what's actually on screen; this class's own Node2D
+## drawing methods (_draw_static_map and everything it used to call) are
+## unused and kept only as an easy fallback/reference, never invoked.
+## UnitMarker/IncidentMarker stay real Node2D children exactly as before,
+## but purely as invisible position-tracking + panel-triggering data
+## objects now -- MapView is simply never given a Camera2D to render
+## through, so nothing they draw is ever seen, but every distance/hit-test
+## calculation below still works completely unchanged, since it always
+## operated on marker.position in the original 2D "world unit" coordinate
+## space, never on screen pixels directly.
 ##
 ## Clicking a unit opens UnitPanelView (welfare/breaks, spec section 14);
 ## clicking an incident marker opens IncidentPanelView (dispatch/reassign/
@@ -97,7 +104,19 @@ var _selected_unit_id: String = ""
 var _current_overlay: OverlayType = OverlayType.NONE
 var _overlay_noise: Dictionary = {} # district_id -> float
 var _overlay_tick_counter: int = 0
-var _camera: Camera2D
+## Fixed downward tilt the 3D camera is created with in main.gd, and the
+## fixed distance back along that tilt from whatever ground point it's
+## focused on. Both are constant for the camera's whole lifetime (only
+## the ground focus point and orthogonal size/zoom ever change), so the
+## offset from a focus point to the actual camera position is always
+## this same vector -- one source of truth shared by main.gd (which sets
+## the camera's rotation and does per-frame panning) and pan_camera_to
+## below (which needs to reproduce the same math for the list-panel
+## "jump to this location" shortcut).
+const CAMERA_PITCH_DEG := -55.0
+const CAMERA_DISTANCE := 34.0
+
+var _camera: Camera3D
 var _neighbourhood_panel: NeighbourhoodPanelView
 
 func setup(world: WorldMapData, incident_panel: IncidentPanelView, unit_panel: UnitPanelView) -> void:
@@ -109,7 +128,6 @@ func setup(world: WorldMapData, incident_panel: IncidentPanelView, unit_panel: U
 	Simulation.core.incident_manager.incident_state_changed.connect(_on_incident_state_changed)
 	Simulation.core.incident_manager.incident_resolved.connect(_on_incident_resolved)
 	Simulation.core.tick_completed.connect(_on_tick_completed)
-	_draw_static_map()
 	_spawn_unit_markers()
 	_spawn_existing_incident_markers()
 
@@ -128,16 +146,27 @@ func close_other_panels(except: Node = null) -> void:
 		if panel and panel != except and panel.is_open():
 			panel.close()
 
-func set_camera(camera: Camera2D) -> void:
+func set_camera(camera: Camera3D) -> void:
 	_camera = camera
+
+## The constant offset from a ground focus point to the camera position,
+## given the fixed CAMERA_PITCH_DEG tilt and CAMERA_DISTANCE back-off --
+## see the doc comment on those consts above.
+static func camera_ground_offset() -> Vector3:
+	return Basis(Vector3.RIGHT, deg_to_rad(CAMERA_PITCH_DEG)).z * CAMERA_DISTANCE
 
 ## Recentres the map on a world position without changing zoom -- used by
 ## the resources/incidents list panels (spec: selecting an entry "should
 ## take the map to the [unit/incident] location") so a player doesn't have
 ## to hunt for it on the map themselves after picking it from a list.
+## world_pos is still in the original 2D "world unit" space (everything
+## that calls this -- list panels, unit/incident lookups -- only ever
+## deals in that space), converted to the 3D scene via City3DView's own
+## WORLD_SCALE so the two stay in lockstep however that constant changes.
 func pan_camera_to(world_pos: Vector2) -> void:
 	if _camera:
-		_camera.position = world_pos
+		var focus_3d := Vector3(world_pos.x, 0.0, world_pos.y) * City3DView.WORLD_SCALE
+		_camera.position = focus_3d + camera_ground_offset()
 
 ## Shared by UnitMarker/IncidentMarker too, so the circle-approximation
 ## logic lives in exactly one place. segments=4 with the same formula

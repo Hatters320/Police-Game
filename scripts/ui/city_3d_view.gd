@@ -94,10 +94,36 @@ var _mesh_cache: Dictionary = {} # path -> Mesh
 
 func build(world: WorldMapData) -> void:
 	_world = world
+	_build_lighting()
 	_build_ground()
 	_build_roads()
 	_build_named_buildings()
 	_build_filler_buildings()
+
+## Without this the scene has no light source at all -- StandardMaterial3D
+## surfaces get zero light contribution and render pure black regardless
+## of albedo_color, indistinguishable from the project's near-black
+## default_clear_color in a screenshot. Missed by the earlier proof-of-
+## concept renders (tasks 94/97/98) because those used a throwaway test
+## scene that set up its own light, never carried over into the real
+## City3DView. Shadows stay off -- a real cost on the mobile Web
+## gl_compatibility target for a presentation layer that doesn't need them.
+func _build_lighting() -> void:
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.55, 0.75, 0.95)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.65, 0.68, 0.78)
+	env.ambient_light_energy = 0.6
+	var world_env := WorldEnvironment.new()
+	world_env.environment = env
+	add_child(world_env)
+
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-55.0, -35.0, 0.0)
+	sun.light_energy = 1.15
+	sun.shadow_enabled = false
+	add_child(sun)
 
 func world_to_3d(pos: Vector2) -> Vector3:
 	return Vector3(pos.x * WORLD_SCALE, 0.0, pos.y * WORLD_SCALE)
