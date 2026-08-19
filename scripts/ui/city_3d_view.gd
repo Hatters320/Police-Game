@@ -45,6 +45,18 @@ extends Node3D
 ## positioned/rotated -- but now snapped onto the same grid as everything
 ## else, and its cell reserved so the block fill doesn't double-place one
 ## on top of it.
+##
+## A later round added two more of the player's Kenney kits --
+## city-kit-suburban (houses for RESIDENTIAL/RURAL, replacing the generic
+## commercial shapes those land uses used to reuse) and mini-forest
+## (standalone decorative trees) -- plus a scattering of civilian cars from
+## the car-kit parked along street cells, and OPEN_CELL_CHANCE, which
+## leaves a real fraction of otherwise-buildable cells as bare ground
+## rather than filling every available lot: the player's own follow-up ask
+## was to space buildings out with gaps/green/pathway room instead of
+## building on every cell the grid mechanism made available. A pedestrian
+## kit (kenney_animated-characters-protagonists) was tried too and pulled
+## back out -- see the doc comment on PARKED_CAR_CHANCE below for why.
 
 ## 0.01 (down from an earlier 0.045) puts the whole town's ~7650x9900
 ## bounding box at roughly 76x99 3D-units -- small enough that adjacent
@@ -66,30 +78,55 @@ const DISTRICT_LAND_USE := {
 
 const COMMERCIAL_DIR := "res://data/models/buildings_commercial/"
 const INDUSTRIAL_DIR := "res://data/models/buildings_industrial/"
+const SUBURBAN_DIR := "res://data/models/buildings_suburban/"
+const NATURE_DIR := "res://data/models/nature/"
 const ROADS_DIR := "res://data/models/roads/"
 const VEHICLES_DIR := "res://data/models/vehicles/"
 
 ## A handful of named variants per land use for named Locations (bigger,
-## more distinctive -- these are landmarks a player will tap on).
-## "low-detail-building-*" (non-wide) turned out to be tall, spindly
-## 0.5x2.0x0.5 towers -- Kenney's distant-LOD silhouette shape, not a
-## believable up-close building -- confirmed by measuring their actual
-## AABB after an early render showed a field of odd thin slivers instead
-## of a town. Only the "-wide" ones (sensible 1.0x1.1x0.5 house/shop
-## proportions) are used; everything else pulls from the full building-*
-## set instead.
+## more distinctive -- these are landmarks a player will tap on). Stored
+## as full dir+variant strings now (no extension) rather than a bare
+## variant name plus a separate dir-selection ternary, since there are now
+## three building source kits instead of two -- RESIDENTIAL/RURAL pull
+## from the player's suburban house kit (kenney_city-kit-suburban) added
+## alongside the original commercial/industrial ones, so a real town has
+## actual houses rather than every district reusing the same shop/office
+## shapes. "low-detail-building-*" (non-wide) turned out to be tall,
+## spindly 0.5x2.0x0.5 towers -- Kenney's distant-LOD silhouette shape,
+## not a believable up-close building -- confirmed by measuring their
+## actual AABB after an early render showed a field of odd thin slivers
+## instead of a town; still used sparingly where noted.
 const NAMED_BUILDING_VARIANTS := {
-	LandUse.URBAN: ["building-a", "building-c", "building-e", "building-g", "building-skyscraper-b", "building-skyscraper-d"],
-	LandUse.RESIDENTIAL: ["building-b", "building-d", "building-f", "low-detail-building-wide-a", "low-detail-building-wide-b"],
-	LandUse.INDUSTRIAL: ["building-b", "building-d", "building-f", "building-h", "building-k"],
-	LandUse.RURAL: ["low-detail-building-wide-a", "low-detail-building-wide-b"],
+	LandUse.URBAN: [
+		COMMERCIAL_DIR + "building-a", COMMERCIAL_DIR + "building-c", COMMERCIAL_DIR + "building-e",
+		COMMERCIAL_DIR + "building-g", COMMERCIAL_DIR + "building-skyscraper-b", COMMERCIAL_DIR + "building-skyscraper-d",
+	],
+	LandUse.RESIDENTIAL: [
+		SUBURBAN_DIR + "building-type-a", SUBURBAN_DIR + "building-type-e", SUBURBAN_DIR + "building-type-j",
+		SUBURBAN_DIR + "building-type-o", SUBURBAN_DIR + "building-type-s",
+	],
+	LandUse.INDUSTRIAL: [
+		INDUSTRIAL_DIR + "building-b", INDUSTRIAL_DIR + "building-d", INDUSTRIAL_DIR + "building-f",
+		INDUSTRIAL_DIR + "building-h", INDUSTRIAL_DIR + "building-k",
+	],
+	LandUse.RURAL: [SUBURBAN_DIR + "building-type-c", SUBURBAN_DIR + "building-type-m"],
 }
-## Smaller/plainer variants for the purely decorative filler pass.
+## Smaller/plainer variants for the district block-fill pass.
 const FILLER_BUILDING_VARIANTS := {
-	LandUse.URBAN: ["low-detail-building-wide-a", "low-detail-building-wide-b", "building-i", "building-j"],
-	LandUse.RESIDENTIAL: ["low-detail-building-wide-a", "low-detail-building-wide-b", "building-b", "building-d"],
-	LandUse.INDUSTRIAL: ["building-a", "building-c", "building-g", "chimney-medium"],
-	LandUse.RURAL: ["low-detail-building-wide-a", "low-detail-building-wide-b"],
+	LandUse.URBAN: [
+		COMMERCIAL_DIR + "low-detail-building-wide-a", COMMERCIAL_DIR + "low-detail-building-wide-b",
+		COMMERCIAL_DIR + "building-i", COMMERCIAL_DIR + "building-j",
+	],
+	LandUse.RESIDENTIAL: [
+		SUBURBAN_DIR + "building-type-b", SUBURBAN_DIR + "building-type-d", SUBURBAN_DIR + "building-type-f",
+		SUBURBAN_DIR + "building-type-h", SUBURBAN_DIR + "building-type-k", SUBURBAN_DIR + "building-type-n",
+		SUBURBAN_DIR + "building-type-q", SUBURBAN_DIR + "building-type-t",
+	],
+	LandUse.INDUSTRIAL: [
+		INDUSTRIAL_DIR + "building-a", INDUSTRIAL_DIR + "building-c", INDUSTRIAL_DIR + "building-g",
+		INDUSTRIAL_DIR + "chimney-medium",
+	],
+	LandUse.RURAL: [SUBURBAN_DIR + "building-type-g", SUBURBAN_DIR + "building-type-l", SUBURBAN_DIR + "building-type-r"],
 }
 ## Tags that mean "no building here" (green space / paved lot, not a
 ## structure) -- matches spec's location tagging, see WestfordMapFactory.
@@ -123,6 +160,43 @@ const BLOCK_SIZE_BY_LAND_USE := {
 ## fill mean tens of thousands of cells) is already close to the size a
 ## hand-picked cluster used to be, so _build_district_blocks below just
 ## fills each district's own real boundary polygon directly.
+
+## Fraction of non-street cells left as bare (already-green) ground
+## instead of a building -- directly answers "space the buildings out...
+## doesn't feel so compact": a real town has gaps, gardens, and paved
+## space between buildings, not a solid building in every available lot.
+## Left as open ground rather than a distinct "path" tile since the
+## ground plane is already a park-like green (GROUND_COLOR below) -- an
+## open cell reads as a gap you could walk or drive through without
+## needing a separate mesh for it.
+const OPEN_CELL_CHANCE := 0.22
+## Of those open cells, the fraction that gets a standalone decorative
+## tree (kenney_mini-forest) so "open space" reads as real greenery in
+## some of those gaps, not just absence.
+const TREE_ON_OPEN_CHANCE := 0.25
+const NATURE_TREE_VARIANTS := ["tree", "tree-high"]
+
+## Sparse decoration scattered on top of the finished grid, seeded
+## independently of the building/street RNG so tuning one doesn't shift
+## the other: a small fraction of road cells gets a parked civilian car
+## just off the carriageway. An ordinary child node (like named
+## buildings), not a GridMap cell, since there are few enough of them
+## that per-instance draw calls are not a real cost the way thousands of
+## building cells would be.
+##
+## Pedestrians (kenney_animated-characters-protagonists) were tried here
+## too and pulled back out: the shared rig has no baked idle pose, so
+## instantiating it without wiring up real animation import renders its
+## raw bind pose -- a T-pose, arms straight out -- at a scale that
+## towered over multi-storey buildings, confirmed as genuinely broken
+## (not just unpolished) against a real Web export screenshot. Fixing it
+## properly means importing the kit's separate idle animation and
+## driving it through an AnimationPlayer, real work disproportionate to
+## background scenery; the raw FBX/skin files are left in
+## data/models/people/ unused, in case that's worth doing in a later
+## round, but nothing in this file references them.
+const PARKED_CAR_CHANCE := 0.035
+const CAR_VARIANTS := ["hatchback-sports", "taxi", "van", "delivery"]
 
 const ROAD_WIDTH := 0.55
 const ROAD_COLOR := Color(0.35, 0.35, 0.38)
@@ -285,9 +359,8 @@ func _build_named_buildings() -> void:
 			continue
 		var land_use: LandUse = _land_use_for_district(location.district_id)
 		var variants: Array = NAMED_BUILDING_VARIANTS.get(land_use, NAMED_BUILDING_VARIANTS[LandUse.URBAN])
-		var dir: String = INDUSTRIAL_DIR if land_use == LandUse.INDUSTRIAL else COMMERCIAL_DIR
-		var variant: String = variants[hash(location.id) % variants.size()]
-		var scene: PackedScene = load(dir + variant + ".glb")
+		var variant_path: String = variants[hash(location.id) % variants.size()]
+		var scene: PackedScene = load(variant_path + ".glb")
 		if scene == null:
 			continue
 		var cell: Vector2i = _world_to_cell(world_to_3d(location.position))
@@ -313,16 +386,21 @@ func _build_named_buildings() -> void:
 func _build_district_blocks() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = FILLER_SEED
+	# Separate RNG stream for decoration (cars/pedestrians/trees) so tuning
+	# those chances can't perturb which cells get which building variant,
+	# and vice versa -- two independent seeded sequences instead of one
+	# shared one that shifts every downstream roll whenever either changes.
+	var decor_rng := RandomNumberGenerator.new()
+	decor_rng.seed = FILLER_SEED + 1
 
 	for district: DistrictDefinition in _world.districts:
 		if district.boundary.size() < 3:
 			continue
 		var land_use: LandUse = DISTRICT_LAND_USE.get(district.id, LandUse.RESIDENTIAL)
 		var variants: Array = FILLER_BUILDING_VARIANTS.get(land_use, FILLER_BUILDING_VARIANTS[LandUse.URBAN])
-		var dir: String = INDUSTRIAL_DIR if land_use == LandUse.INDUSTRIAL else COMMERCIAL_DIR
 		var item_ids: Array = []
-		for variant in variants:
-			item_ids.append(_register_library_item(dir + variant + ".glb"))
+		for variant_path in variants:
+			item_ids.append(_register_library_item(variant_path + ".glb"))
 
 		var block_size: int = BLOCK_SIZE_BY_LAND_USE.get(land_use, 3)
 		var street_period: int = block_size + 1
@@ -350,16 +428,58 @@ func _build_district_blocks() -> void:
 
 				if is_street_col and is_street_row:
 					_grid_map.set_cell_item(grid_pos, _road_crossroad_item)
+					_occupied_cells[cell] = true
 				elif is_street_col:
 					var vertical: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, PI * 0.5))
-					_grid_map.set_cell_item(grid_pos, _road_straight_item, vertical)
+					if decor_rng.randf() < PARKED_CAR_CHANCE:
+						_place_car_cell(grid_pos, PI * 0.5, decor_rng)
+					else:
+						_grid_map.set_cell_item(grid_pos, _road_straight_item, vertical)
+					_occupied_cells[cell] = true
 				elif is_street_row:
-					_grid_map.set_cell_item(grid_pos, _road_straight_item)
+					if decor_rng.randf() < PARKED_CAR_CHANCE:
+						_place_car_cell(grid_pos, 0.0, decor_rng)
+					else:
+						_grid_map.set_cell_item(grid_pos, _road_straight_item)
+					_occupied_cells[cell] = true
+				elif rng.randf() < OPEN_CELL_CHANCE:
+					# Left as bare ground -- deliberately not marked
+					# occupied unless a tree lands here, so the
+					# already-green ground plane shows through as open
+					# space between buildings (spec: "space out the
+					# individual buildings... doesn't feel so compact").
+					if decor_rng.randf() < TREE_ON_OPEN_CHANCE:
+						var tree_path: String = NATURE_DIR + NATURE_TREE_VARIANTS[decor_rng.randi() % NATURE_TREE_VARIANTS.size()] + ".glb"
+						var tree_item: int = _register_library_item(tree_path)
+						var tree_facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (decor_rng.randi() % 4) * PI * 0.5))
+						_grid_map.set_cell_item(grid_pos, tree_item, tree_facing)
+						_occupied_cells[cell] = true
 				else:
 					var item_id: int = item_ids[rng.randi() % item_ids.size()]
 					var facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (rng.randi() % 4) * PI * 0.5))
 					_grid_map.set_cell_item(grid_pos, item_id, facing)
-				_occupied_cells[cell] = true
+					_occupied_cells[cell] = true
+
+## Cars and trees both go through the same shared GridMap as buildings and
+## roads -- confirmed necessary, not just convenient, after measuring a
+## real ~2x frame-time regression (requestAnimationFrame sampling, same
+## sandbox before/after) from an earlier version that gave each car/tree
+## its own individually instanced scene node the way named buildings get
+## one. GridMap batches per unique mesh internally regardless of cell
+## count, the same reason it replaced the original MultiMesh-bucketed
+## filler-building approach; individual scene instances don't get that for
+## free, and there turned out to be enough scattered decoration for the
+## difference to be real. The one cost: a GridMap cell can't have a
+## sub-cell position offset, so a "parked" car sits centred in its road
+## cell rather than pulled over to the shoulder -- reads fine at this
+## camera angle as a car in traffic, not a real visual downgrade.
+func _place_car_cell(grid_pos: Vector3i, road_yaw: float, decor_rng: RandomNumberGenerator) -> void:
+	var variant: String = CAR_VARIANTS[decor_rng.randi() % CAR_VARIANTS.size()]
+	var item_id: int = _register_library_item(VEHICLES_DIR + variant + ".glb")
+	# Facing along the road, randomly one direction or the other.
+	var yaw: float = road_yaw + (PI if decor_rng.randf() < 0.5 else 0.0)
+	var facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, yaw))
+	_grid_map.set_cell_item(grid_pos, item_id, facing)
 
 ## Kenney's single-mesh-single-node GLBs (every building/road piece here)
 ## let this just grab the first MeshInstance3D's mesh directly rather than
