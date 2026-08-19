@@ -377,6 +377,55 @@ mesh, MultiMesh-batched filler buildings, a low individually-instanced
 building count) are the same mobile-perf pattern this project has used
 throughout, but a real numbers-based check needs an actual device.
 
+The player's first real playtest of the 3D build reported two things: the
+drag-pan felt backwards, and the town looked too sparse compared to a real
+city. Both got fixed.
+
+The pan direction bug was real and isolated to one axis: `main.gd`'s
+`_pan_by_screen_delta` derives two ground-plane basis vectors from the
+tilted `Camera3D`'s own transform (screen-right and screen-forward), and
+the screen-right term was correct but the screen-forward term had the
+wrong sign, moving the camera the opposite way along its tilt axis to
+what dragging up/down should do -- sideways panning felt fine, vertical
+panning felt inverted, exactly matching the report. Confirmed the exact
+direction of the bug, then the fix, the same way as everything else this
+session: comparing a landmark's screen position in real Web export
+screenshots before and after a controlled drag in each direction, not
+just re-deriving the trig by hand a second time.
+
+The sparseness complaint led somewhere bigger than a tuning number,
+though -- the player asked for Godot's own grid system, and named it
+correctly: measuring Kenney's building and road tile AABBs confirmed
+they're all exactly 1x1x1 units, i.e. built for snapping to a `GridMap`,
+which the previous scattered-`MultiMesh` filler approach never used.
+`City3DView` now carves each district into a real street lattice --
+`road-straight`/`road-crossroad` tiles spaced by a per-land-use block
+size (town centre tightest, rural sparsest, so the same mechanism doesn't
+flatten every district to one density) -- and fills every remaining
+in-polygon cell with a building, all through one shared `GridMap` (which
+batches per unique mesh internally regardless of cell count, the reason
+to use it over hand-rolled `MultiMesh` bucketing). Real Locations keep
+their own individually instanced building for tap-identifiability, but
+now snap onto the same grid and reserve their cell first so the block
+fill can't double-place on top of one. The organic `RoadGraph` ribbon
+mesh from the original migration stays as-is, now read as the
+inter-district arterial network threading between these tighter local
+grids rather than the only road visual in the scene.
+
+A first pass at cluster sizing (town centre ~300+ buildings) looked
+right but measured a real ~3x frame-time regression sampled via
+`requestAnimationFrame` against a real Web export, before vs after, in
+the same sandbox -- not a real-device number on its own, but a valid
+relative comparison since both builds ran under the same software-WebGL
+fallback. Pulled back to smaller cluster sizes that still land at several
+times the old scatter version's per-district building counts without
+that regression. Verified end-to-end against a real Web export:
+dragging up/down now moves the camera the same direction as the
+player's own device previously showed backwards, the pan/dispatch/panel
+flow from the original migration still works unchanged against the new
+grid town, and the town itself now reads as a real tightly-packed grid
+of streets and buildings instead of scattered dots.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
