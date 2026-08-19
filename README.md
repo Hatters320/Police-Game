@@ -302,6 +302,81 @@ dispatcher/unit dialogue, and a unit now acknowledges a dispatch
 ("Copy, I'm en route.") as its own line rather than only speaking once, on
 arrival.
 
+The player then asked for something bigger than UI polish: several 3D
+low-poly city/building/car kits (Kenney.nl, CC0) added to a shared Google
+Drive, to replace the flat 2D map with a real 3D view. After confirming
+Drive access to all six kits and checking with the player on how big a
+change to make (a full 3D rebuild touches camera, lighting, and every 2D
+marker/overlay -- confirmed explicitly before starting), the migration
+kept a hard boundary: all of `WorldMapData`/`RoadGraph`/district/incident/
+unit simulation logic stays completely untouched, and a new presentation-
+only layer reads the same data through a `WORLD_SCALE` (0.045) conversion.
+`City3DView` builds Westford once from that data: the ground as a single
+`PlaneMesh`, the entire road network as one combined ribbon mesh via
+`SurfaceTool` (one draw call for the whole graph, since Kenney's modular
+snap-together road tiles don't fit this project's organic, non-grid-aligned
+procedural road layout), named Locations as individually instanced building
+GLBs (a few dozen, so per-instance overhead is fine and keeps them
+tap-identifiable later), and purely decorative filler buildings batched via
+`MultiMeshInstance3D` per district/variant -- hundreds of individual scene
+instances would be hundreds of extra draw calls, a real cost on the mobile
+Web `gl_compatibility` target that MultiMesh avoids. An early full-town
+render showed a field of thin spindly slivers instead of believable
+buildings; measuring actual model AABBs found the cause -- Kenney's non-
+"wide" `low-detail-building-*` models are tall 0.5x2.0x0.5 towers (their
+distant-LOD silhouette shape, not a close-up building), fixed by using the
+full `building-a..n` set plus only the "-wide" low-detail variants
+everywhere else.
+
+`MapView`'s existing hit-testing and panel-opening logic -- `_handle_click`,
+`open_incident_panel`, `_select_unit`, and every marker-lifecycle method --
+turned out to need zero changes for 3D, since all of it already operated
+purely on `UnitMarker`/`IncidentMarker` Node2D positions in the original 2D
+world-coordinate space, never on screen pixels directly. `main.gd` replaced
+its Camera2D-driven pan/pinch/tap-to-select with a `Camera3D` equivalent
+instead: an orthogonal projection at a fixed downward tilt
+(`MapView.CAMERA_PITCH_DEG`/`CAMERA_DISTANCE`, the single source of truth
+both files share for the camera's ground-offset math) so `camera.size` maps
+cleanly onto the old "zoom" concept, drag-pan moves the camera along the
+ground plane with a foreshortening correction for the tilt (equal ground
+distance along the view direction covers less screen space than the same
+distance sideways), and a tap converts to a world position via a ray/Y=0-
+plane intersection before handing off to the same unchanged
+`MapView.handle_tap`. `MapView` itself is now explicitly hidden
+(`visible = false`) rather than deleted -- it still owns real, ticking
+marker data and every panel-opening signal connection, it just never gets a
+camera to render through any more, since `City3DView` owns 100% of what's
+actually on screen.
+
+Two real bugs surfaced only once tested against an actual Web export
+screenshot, not just headless script-compile checks: `City3DView` had no
+light source or `WorldEnvironment` at all, so every surface received zero
+light and rendered pure black, indistinguishable from the project's
+near-black default clear colour; and the first camera framing guess
+(`camera.size = 90`, extrapolated from the old 2D zoom's screen-pixel math
+without accounting for how small Kenney's building models actually are)
+shrank every building to a 2-4px dot regardless of zoom level. Both
+diagnosed the same way: an extreme test value (a bright red background,
+then an absurdly tight `camera.size = 2`) isolated whether code changes
+were reaching the browser at all versus a genuine scale/lighting problem,
+which confirmed the latter and gave real numbers to retune against --
+buildings read as clearly recognisable low-poly shapes from `camera.size`
+~2-3, so the shipped default (8) and zoom bounds (3-220) are picked from
+that, not guessed. Verified end-to-end against a real Web export via
+Playwright: briefing through CONFIRM SHIFT PLAN, drag-pan and scroll-wheel
+zoom both visibly move/scale the rendered city, clicking a unit in the
+docked Resources list pans the camera and opens its welfare panel, and
+roughly 30 seconds of real 4x-speed play produced multiple incidents
+(including a priority escalation) with zero console or page errors
+throughout. Frame rate wasn't independently benchmarked beyond that: the
+sandbox this was tested in has no GPU device, so Chromium falls back to
+software WebGL rendering, and any FPS number measured there reflects that
+fallback rather than the `gl_compatibility` renderer running on a real
+device's GPU -- the draw-call-conscious choices above (one merged road
+mesh, MultiMesh-batched filler buildings, a low individually-instanced
+building count) are the same mobile-perf pattern this project has used
+throughout, but a real numbers-based check needs an actual device.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
