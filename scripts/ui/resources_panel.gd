@@ -36,6 +36,11 @@ func _panel_anchor() -> int:
 func _panel_width() -> float:
 	return 132.0
 
+## Same derived height as the dispatch queue, so the two docked panels
+## frame the map symmetrically.
+func _panel_height() -> float:
+	return available_docked_height()
+
 func wire(map_view: MapView, unit_panel: UnitPanelView) -> void:
 	_map_view = map_view
 	_unit_panel = unit_panel

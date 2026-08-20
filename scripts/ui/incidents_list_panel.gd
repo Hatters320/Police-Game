@@ -15,6 +15,13 @@ var _incident_panel: IncidentPanelView
 func _panel_width() -> float:
 	return 132.0
 
+## Fills the real available height rather than a fixed number -- the
+## dispatch queue is the panel a player reads most, and three-line
+## incident rows meant only two fit at the old 200 default. See
+## SidePanelView.available_docked_height for why this is derived.
+func _panel_height() -> float:
+	return available_docked_height()
+
 func wire(map_view: MapView, incident_panel: IncidentPanelView) -> void:
 	_map_view = map_view
 	_incident_panel = incident_panel

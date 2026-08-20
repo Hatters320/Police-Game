@@ -208,6 +208,12 @@ func _ready() -> void:
 	hud_view.wire_overlays(map_view)
 	hud_view.wire_zoom_controls(func(): _zoom_by(ZOOM_STEP_IN), func(): _zoom_by(ZOOM_STEP_OUT))
 	hud_view.wire_neighbourhood_panel(func(): neighbourhood_panel.open())
+	# The two always-docked panels size themselves against the dispatcher
+	# feed's current height so they stop clear of it with a visible gap,
+	# and re-size when the player grows or shrinks the feed. Done after
+	# hud_view exists, since that is what owns the feed.
+	resources_panel.bind_hud(hud_view)
+	incidents_list_panel.bind_hud(hud_view)
 	# Resources/Incidents are always-docked by default now (open in
 	# _on_briefing_confirmed below) -- these buttons toggle them off/back
 	# on, for a player who wants to reclaim map space on a small screen.

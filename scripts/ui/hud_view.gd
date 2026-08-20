@@ -37,8 +37,14 @@ var _staffing_label: Label
 var _fatigue_label: Label
 var _feed_list: VBoxContainer
 var _feed_scroll: ScrollContainer
+var _feed_panel: PanelContainer
+var _feed_wrapper: VBoxContainer
+var _feed_tab_button: Button
+var _feed_size_icon: UiIcon
+var _feed_height_index: int = 0
 var _controls_row: HBoxContainer
 var _right_cluster: HBoxContainer
+var _stats_row: HBoxContainer
 var _overlay_picker: OptionButton
 var _map_view: MapView
 
@@ -62,6 +68,31 @@ const ICON_SIZE := 12.0
 ## Where the thin top HUD ends and the always-docked side panels begin --
 ## SidePanelView positions against this same value so nothing overlaps.
 const HUD_BOTTOM := 52.0
+
+## The sizes the dispatcher feed cycles through when its tab is tapped,
+## by request: "I'd like the user to be able to make the dispatcher comms
+## box larger if they want to so they can clearly see all comms."
+##
+## Three discrete steps rather than a free drag -- compact (the default
+## thin strip this shipped with, which keeps the map maximally visible),
+## medium, and tall enough to read a real run of traffic at once without
+## scrolling. Starts compact so the default screen is unchanged for anyone
+## who never touches it.
+const FEED_HEIGHTS: Array[float] = [46.0, 104.0, 170.0]
+
+## Fired whenever the feed changes size, so the always-docked side panels
+## can shrink to keep clear of it. Without this, growing the comms box
+## would grow it straight up underneath the Unit Management / Dispatch
+## Queue panels -- which is the overlap real playtesting already objected
+## to once ("they should stop short of that with a little bit of padding
+## between them to clearly show they are different").
+signal feed_height_changed
+
+## Total vertical space the feed strip occupies from the bottom of the
+## screen, including its tab row and the panel's own padding -- the single
+## number SidePanelView needs to know to stay clear of it.
+func feed_total_height() -> float:
+	return FEED_HEIGHTS[_feed_height_index] + 32.0
 
 func _ready() -> void:
 	layer = 2 # above DayNightOverlay's tint (layer 1), below side panels (layer 3)
@@ -94,46 +125,92 @@ func _ready() -> void:
 ## "when/what conditions" then "what have I got", instead of one
 ## undifferentiated string of numbers.
 func _build_stats_bar() -> void:
-	var row := HBoxContainer.new()
-	row.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	row.position = Vector2(6, 3)
-	row.add_theme_constant_override("separation", 6)
-	add_child(row)
+	# One continuous full-width bar rather than the free-floating cards
+	# this started as. Real playtesting on a wide screen asked for the top
+	# to "all flow as one", and the two-cards-plus-gap arrangement read as
+	# separate floating widgets over the map instead of a single piece of
+	# chrome. The bar spans edge to edge and the groups inside it are now
+	# separated by hairline dividers instead of by gaps in a background.
+	var bar := PanelContainer.new()
+	var bar_style := UiTheme.panel_style(UiTheme.PANEL_BG, UiTheme.RADIUS_CARD)
+	bar_style.content_margin_top = 3
+	bar_style.content_margin_bottom = 3
+	bar.add_theme_stylebox_override("panel", bar_style)
+	bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	bar.position = Vector2(6, 3)
+	bar.offset_right = -6
+	add_child(bar)
 
-	var shift_card := _add_card(row)
-	_time_label = _add_chip(shift_card, UiIcon.Kind.CLOCK)
-	_add_chip_divider(shift_card)
-	_weather_label = _add_chip(shift_card, UiIcon.Kind.CLEAR)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 7)
+	bar.add_child(row)
+
+	# The stats sit inside a plain Control, not a Container, and that is
+	# load-bearing: a Container propagates its children's minimum widths
+	# upward, so the bar's minimum became "every chip at full width plus
+	# every pill" and on the 640-logical-wide base viewport that overflowed
+	# -- a real screenshot showed the speed pills pushed clean off the
+	# right edge, unreachable. A plain Control reports only its own
+	# minimum, so the chips keep their natural size and are simply clipped
+	# if the screen is too narrow for all of them, while the controls stay
+	# put. (Making the labels themselves shrink was tried first and was
+	# worse: every chip ellipsised at once, leaving "17:00 (en...", "CLEA",
+	# "6 AVA" across the whole bar.)
+	var stats_clip := Control.new()
+	stats_clip.clip_contents = true
+	stats_clip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stats_clip.size_flags_vertical = Control.SIZE_FILL
+	stats_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(stats_clip)
+
+	var stats_box := HBoxContainer.new()
+	stats_box.add_theme_constant_override("separation", 7)
+	stats_box.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	stats_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stats_clip.add_child(stats_box)
+
+	_time_label = _add_chip(stats_box, UiIcon.Kind.CLOCK)
+	_add_chip_divider(stats_box)
+	_weather_label = _add_chip(stats_box, UiIcon.Kind.CLEAR)
 	# Kept so refresh_stats can swap sun<->cloud as the weather actually
 	# changes, rather than showing one fixed glyph whatever it says.
-	_weather_icon = shift_card.get_child(shift_card.get_child_count() - 2) as UiIcon
+	_weather_icon = stats_box.get_child(stats_box.get_child_count() - 2) as UiIcon
+	_add_chip_divider(stats_box)
 
-	var status_card := _add_card(row)
-	_units_label = _add_chip(status_card, UiIcon.Kind.SHIELD)
-	_add_chip_divider(status_card)
-	_incidents_label = _add_chip(status_card, UiIcon.Kind.PEOPLE)
-	_add_chip_divider(status_card)
-	_staffing_label = _add_chip(status_card, UiIcon.Kind.CLOCK)
-	_add_chip_divider(status_card)
-	_fatigue_label = _add_chip(status_card, UiIcon.Kind.FATIGUE)
+	_units_label = _add_chip(stats_box, UiIcon.Kind.SHIELD)
+	_add_chip_divider(stats_box)
+	_incidents_label = _add_chip(stats_box, UiIcon.Kind.PEOPLE)
+	_add_chip_divider(stats_box)
+	_staffing_label = _add_chip(stats_box, UiIcon.Kind.CLOCK)
+	_add_chip_divider(stats_box)
+	_fatigue_label = _add_chip(stats_box, UiIcon.Kind.FATIGUE)
 
-## Row 2: speed pills + overlay picker on the left, and a right-hand
-## cluster for the panel toggles -- the mockup separates "control the
-## simulation" from "choose what to look at", which the old single
-## undifferentiated run of buttons did not.
+	# Speed controls live top-right now, by request -- and in the same bar
+	# as the stats rather than a row of their own, which is what lets the
+	# whole top read as one continuous strip.
+	_speed_buttons[0.0] = _add_pill(row, "Pause", func(): Simulation.commands().pause())
+	_speed_buttons[1.0] = _add_pill(row, "1x", func(): Simulation.commands().set_speed(1.0))
+	_speed_buttons[2.0] = _add_pill(row, "2x", func(): Simulation.commands().set_speed(2.0))
+	_speed_buttons[4.0] = _add_pill(row, "4x", func(): Simulation.commands().set_speed(4.0))
+	_stats_row = stats_box
+
+## Row 2: the overlay picker and the panel/zoom cluster. The speed pills
+## moved up into the stats bar (see above), leaving this row for "choose
+## what to look at" only.
 func _build_controls_bar() -> void:
 	var row := HBoxContainer.new()
 	row.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	row.position = Vector2(6, 25)
+	row.offset_right = -6
 	row.add_theme_constant_override("separation", 6)
 	add_child(row)
 
-	var speed_card := _add_card(row)
-	_controls_row = speed_card
-	_speed_buttons[0.0] = _add_pill(speed_card, "Pause", func(): Simulation.commands().pause())
-	_speed_buttons[1.0] = _add_pill(speed_card, "1x", func(): Simulation.commands().set_speed(1.0))
-	_speed_buttons[2.0] = _add_pill(speed_card, "2x", func(): Simulation.commands().set_speed(2.0))
-	_speed_buttons[4.0] = _add_pill(speed_card, "4x", func(): Simulation.commands().set_speed(4.0))
+	_controls_row = _add_card(row)
+
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(spacer)
 
 	_right_cluster = _add_card(row)
 
@@ -156,6 +233,9 @@ func _add_chip(parent: Node, icon_kind: UiIcon.Kind) -> Label:
 	label.add_theme_font_size_override("font_size", STAT_FONT_SIZE)
 	label.add_theme_color_override("font_color", UiTheme.TEXT_PRIMARY)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	# Natural width -- the stats row is clipped by its parent Control if the
+	# screen is too narrow (see _build_stats_bar), rather than each label
+	# being squeezed until none of them are readable.
 	parent.add_child(label)
 	return label
 
@@ -374,39 +454,68 @@ const MAX_FEED_ENTRIES := 20
 func _build_feed() -> void:
 	var wrapper := VBoxContainer.new()
 	wrapper.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	wrapper.position = Vector2(10, -78)
-	wrapper.offset_right = -10
 	wrapper.add_theme_constant_override("separation", 0)
 	add_child(wrapper)
+	# Offsets are set by _apply_feed_height() at the end of this function,
+	# which is the single place that knows how tall the strip currently is.
 
 	# The tab sits half-overlapping the card below it in the mockup; a
 	# left-aligned strip in its own row is the closest equivalent that
 	# still behaves under Godot's container layout.
+	#
+	# It doubles as the feed's size control, by request ("I'd like the user
+	# to be able to make the dispatcher comms box larger if they want to so
+	# they can clearly see all comms"): tapping cycles the strip through
+	# FEED_HEIGHTS. A tap target is used rather than a drag handle because
+	# the panels' own scroll bars had already proved too fiddly to hit on a
+	# real phone -- a thin resize edge would be the same mistake again --
+	# and the chevron matches the collapsible-panel language the docked
+	# headers already use.
+	# The tab is a plain Button carrying its own text, with the chevron
+	# anchored inside it -- NOT a Button wrapping an HBoxContainer. Button
+	# is not a Container, so it never lays a container child out: a first
+	# attempt at this nested a label+chevron box inside the button and the
+	# whole feed strip vanished from a real screenshot. The anchored-child
+	# pattern below is the one already proven by the zoom/layer pills.
 	var tab_row := HBoxContainer.new()
 	wrapper.add_child(tab_row)
-	var tab := PanelContainer.new()
+	_feed_tab_button = Button.new()
+	# NOT flat: a flat Button skips drawing its stylebox entirely, so the
+	# overrides below simply would not paint and a real screenshot showed
+	# the tab as bare text floating over the map instead of a chip.
+	_feed_tab_button.flat = false
+	_feed_tab_button.text = "Dispatcher Feed"
+	_feed_tab_button.add_theme_font_size_override("font_size", 10)
+	_feed_tab_button.add_theme_color_override("font_color", UiTheme.HEADER_TEXT)
+	_feed_tab_button.add_theme_color_override("font_hover_color", UiTheme.TEXT_PRIMARY)
+	_feed_tab_button.add_theme_color_override("font_pressed_color", UiTheme.TEXT_PRIMARY)
 	var tab_style := UiTheme.panel_style(UiTheme.HEADER_BG, UiTheme.RADIUS_CARD)
 	tab_style.content_margin_top = 2
 	tab_style.content_margin_bottom = 2
-	tab.add_theme_stylebox_override("panel", tab_style)
-	tab_row.add_child(tab)
-	var tab_label := Label.new()
-	tab_label.text = "Dispatcher Feed"
-	tab_label.add_theme_font_size_override("font_size", 10)
-	tab_label.add_theme_color_override("font_color", UiTheme.HEADER_TEXT)
-	tab.add_child(tab_label)
+	# Room on the right for the chevron that sits inside the button.
+	tab_style.content_margin_right = 20
+	_feed_tab_button.add_theme_stylebox_override("normal", tab_style)
+	_feed_tab_button.add_theme_stylebox_override("hover", tab_style)
+	_feed_tab_button.add_theme_stylebox_override("pressed", tab_style)
+	_feed_tab_button.add_theme_stylebox_override("focus", tab_style)
+	_feed_tab_button.pressed.connect(_cycle_feed_height)
+	tab_row.add_child(_feed_tab_button)
 
-	var feed_panel := PanelContainer.new()
-	feed_panel.add_theme_stylebox_override("panel", UiTheme.panel_style())
-	feed_panel.custom_minimum_size = Vector2(0, 54)
-	wrapper.add_child(feed_panel)
+	_feed_size_icon = UiIcon.new(UiIcon.Kind.CHEVRON_UP, UiTheme.TEXT_DIM, 10.0)
+	_feed_size_icon.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	_feed_size_icon.position = Vector2(-15, -5)
+	_feed_tab_button.add_child(_feed_size_icon)
+
+	_feed_panel = PanelContainer.new()
+	_feed_panel.add_theme_stylebox_override("panel", UiTheme.panel_style())
+	wrapper.add_child(_feed_panel)
+	_feed_wrapper = wrapper
 
 	# Still a real vertical scroll, not a single-line ticker -- "thin" means
 	# noticeably shorter than the old ~90px box (spec section 39/a real
 	# user report both want scroll-back history kept, not traded away for
 	# thinness), not reduced to one line with no way to browse past lines.
 	_feed_scroll = ScrollContainer.new()
-	_feed_scroll.custom_minimum_size = Vector2(0, 46)
 	# Horizontal scroll left enabled (the default) let _feed_list collapse
 	# to its content-minimum width instead of filling the bar -- since
 	# every line here autowraps (which reports a near-zero minimum), that
@@ -416,12 +525,16 @@ func _build_feed() -> void:
 	# (now full-width) space, so a line only wraps if it's genuinely too
 	# long for that, not because the container never gave it room.
 	_feed_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	feed_panel.add_child(_feed_scroll)
+	_feed_panel.add_child(_feed_scroll)
 
 	_feed_list = VBoxContainer.new()
 	_feed_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_feed_list.add_theme_constant_override("separation", 1)
 	_feed_scroll.add_child(_feed_list)
+
+	# Sets the initial (compact) height through the same path a tap uses,
+	# so there is one place that knows how the strip is laid out.
+	_apply_feed_height()
 
 ## incident_id, when given, makes this line a tappable shortcut to that
 ## incident's panel -- a busy real phone screen can make the matching map
@@ -478,3 +591,35 @@ func _append_feed(text: String, color: Color = Color.WHITE, incident_id: String 
 ## not against the scroll range from before it existed.
 func _scroll_feed_to_bottom() -> void:
 	_feed_scroll.set_deferred("scroll_vertical", 999999)
+
+## Steps the feed to the next size in FEED_HEIGHTS, wrapping back round to
+## compact. The whole strip is bottom-anchored, so growing it means moving
+## the wrapper's top edge further up rather than letting it extend off the
+## bottom of the screen -- hence repositioning here as well as resizing.
+func _cycle_feed_height() -> void:
+	_feed_height_index = (_feed_height_index + 1) % FEED_HEIGHTS.size()
+	_apply_feed_height()
+
+func _apply_feed_height() -> void:
+	var height: float = FEED_HEIGHTS[_feed_height_index]
+	_feed_scroll.custom_minimum_size = Vector2(0, height)
+	_feed_panel.custom_minimum_size = Vector2(0, height + 8.0)
+	# Pin all four offsets rather than assigning `position`. Control's
+	# position setter *preserves the control's current size* by moving
+	# offset_bottom along with offset_top -- and at build time that size is
+	# still 0, so re-positioning the bottom-anchored wrapper here pinned it
+	# to zero height and the entire feed strip vanished from a real
+	# screenshot. Setting the offsets directly states the intent exactly:
+	# span from (bottom - height - chrome) to the bottom edge.
+	# The 32 is the tab row plus the panel's own padding, measured from the
+	# compact layout this replaced (wrapper sat at -78 for a 46px feed).
+	_feed_wrapper.offset_left = 10
+	_feed_wrapper.offset_right = -10
+	_feed_wrapper.offset_top = -(height + 32.0)
+	_feed_wrapper.offset_bottom = 0
+	# Points the way the next tap will take it: up while there is a bigger
+	# size left, back down when the next tap wraps to compact.
+	_feed_size_icon.kind = UiIcon.Kind.CHEVRON_DOWN if _feed_height_index == FEED_HEIGHTS.size() - 1 else UiIcon.Kind.CHEVRON_UP
+	_feed_size_icon.queue_redraw()
+	_scroll_feed_to_bottom()
+	feed_height_changed.emit()

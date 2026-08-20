@@ -1308,7 +1308,20 @@ func _build_walk_graph() -> Dictionary:
 
 	for cell in _street_cells:
 		var height: float = _street_cell_height.get(cell, ROAD_SURFACE_HEIGHT)
-		positions[cell] = _street_cells[cell] + Vector3(0, height, 0)
+		# The road tile's own origin is NOT at y=0. GridMap defaults
+		# cell_center_y to true, so a tile placed in cell y=0 has its
+		# origin half a cell UP (y = 0.5 at GRID_CELL_SIZE 1.0), putting
+		# its drivable surface at 0.52, not 0.02. An earlier fix added the
+		# correct per-tile surface height (0.02 flat, 0.52 bridge) but
+		# measured it from a hard-coded y=0 baseline -- which left every
+		# walker exactly half a cell under every road, not just the
+		# bridges that fix was chasing. That is precisely what real
+		# playtesting reported next: "cars and people are still moving
+		# underneath the road and walkways". Asking the GridMap where it
+		# actually placed the tile, rather than assuming a baseline, keeps
+		# this correct if cell_size or the centering flags ever change.
+		var tile_origin_y: float = _grid_map.map_to_local(Vector3i(cell.x, 0, cell.y)).y
+		positions[cell] = _street_cells[cell] + Vector3(0, tile_origin_y + height, 0)
 		var neighbours: Array = []
 		for delta in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 			var neighbour: Vector2i = cell + delta

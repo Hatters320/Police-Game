@@ -18,6 +18,25 @@ extends CanvasLayer
 signal closed
 
 var content: VBoxContainer
+var _panel: PanelContainer
+var _scroll: ScrollContainer
+
+## Drag-to-scroll state. Real playtesting: "the only way of scrolling the
+## incident, resources or comms panel is on the side bar. This is too hard
+## on the screen." It was -- the scroll bar is a few logical pixels wide,
+## an awkward target on a phone, and a drag anywhere else in the panel did
+## nothing at all. These track a press so a drag anywhere on the panel
+## body scrolls it, the way a native mobile list behaves.
+var _drag_active: bool = false
+var _drag_started_scroll: int = 0
+var _drag_start_pos: Vector2 = Vector2.ZERO
+var _drag_exceeded_threshold: bool = false
+
+## Movement past this many screen pixels turns a press into a scroll drag
+## rather than a tap -- matched to main.gd's TAP_DRAG_THRESHOLD, which
+## makes the same distinction for map gestures, so both surfaces feel the
+## same under a thumb.
+const DRAG_THRESHOLD := 14.0
 
 ## Override to Control.PRESET_TOP_LEFT for a left-docked panel.
 func _panel_anchor() -> int:
@@ -26,6 +45,45 @@ func _panel_anchor() -> int:
 ## Just below HudView's now-thin 2-row top bar (HudView.HUD_BOTTOM), with a
 ## small gap.
 const PANEL_TOP_Y := HudView.HUD_BOTTOM + 6.0
+
+## Clear space left between a docked panel's bottom edge and the top of
+## the dispatcher feed strip, so the two read as separate pieces of
+## chrome. Real playtesting asked for exactly this: the panels "should not
+## overlap the comms panel, they should stop short of that with a little
+## bit of padding between them to clearly show they are different".
+const DOCKED_FEED_GAP := 16.0
+
+## Set by main.gd so a docked panel can measure itself against the feed's
+## *current* height -- the feed is player-resizable, so this cannot be a
+## constant. Left null for the pop-up detail panels, which don't extend
+## far enough down to care.
+var _hud_view: HudView
+
+## How tall an always-docked panel can be on this device, measured from
+## the real viewport rather than hard-coded.
+##
+## project.godot stretches canvas_items from a 640x360 base with aspect
+## "expand", so the logical *height* stays around 360 on any device while
+## the width varies -- which means a hard-coded panel height is really a
+## fraction of the whole screen. A first attempt at "taller, by request"
+## used a flat 300 and, at 360 logical tall with a panel starting at 58,
+## ran the panel straight off the bottom of the screen and through the
+## feed. Deriving it satisfies the request (as tall as there is room for)
+## without that failure mode, and re-reading the feed's live height means
+## expanding the comms box shrinks these panels rather than being
+## overlapped by them.
+func available_docked_height() -> float:
+	var viewport_height: float = get_viewport().get_visible_rect().size.y
+	var feed_height: float = _hud_view.feed_total_height() if _hud_view else 78.0
+	return maxf(90.0, viewport_height - PANEL_TOP_Y - feed_height - DOCKED_FEED_GAP)
+
+## Called by main.gd for the always-docked panels. Wiring the signal here
+## rather than in main keeps "how this panel decides its own height" in
+## one place.
+func bind_hud(hud_view: HudView) -> void:
+	_hud_view = hud_view
+	hud_view.feed_height_changed.connect(_on_viewport_resized)
+	_on_viewport_resized()
 
 ## Override for a taller panel (e.g. a full-length browsable list) --
 ## content still scrolls beyond this, it's just the visible window.
@@ -62,6 +120,7 @@ func _ready() -> void:
 	var width: float = _panel_width()
 	panel.position = Vector2(8, PANEL_TOP_Y) if anchor == Control.PRESET_TOP_LEFT else Vector2(-(width + 8.0), PANEL_TOP_Y)
 	add_child(panel)
+	_panel = panel
 
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(width, _panel_height())
@@ -74,14 +133,67 @@ func _ready() -> void:
 	# it forces the child to fill the panel's actual width instead.
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	panel.add_child(scroll)
+	_scroll = scroll
+	# Rotating a phone, or any other resize, changes how much room a docked
+	# panel has -- without this it would keep whatever height the viewport
+	# happened to be at startup.
+	get_viewport().size_changed.connect(_on_viewport_resized)
 
 	content = VBoxContainer.new()
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 4)
 	scroll.add_child(content)
 
+## Drag-anywhere scrolling for the panel body.
+##
+## Handled in _input (which runs before Controls get their own turn)
+## rather than on the ScrollContainer's gui_input, because the cards
+## inside are Buttons: they consume the press, so a drag starting on a
+## card -- i.e. most of the panel's area, which is the whole complaint --
+## would never reach the container. Watching here sees every press
+## regardless of what sits under it.
+##
+## Taps still work: nothing is consumed unless the pointer actually moves
+## past DRAG_THRESHOLD. Once it has, the release IS consumed, so a drag
+## that happens to start on a card scrolls the list instead of also
+## opening that card on release -- the same tap-versus-drag arbitration
+## main.gd makes for the map.
+func _input(event: InputEvent) -> void:
+	if not visible or _scroll == null or _panel == null:
+		return
+
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			if _panel.get_global_rect().has_point(event.position):
+				_drag_active = true
+				_drag_exceeded_threshold = false
+				_drag_start_pos = event.position
+				_drag_started_scroll = _scroll.scroll_vertical
+		else:
+			var was_drag: bool = _drag_exceeded_threshold
+			_drag_active = false
+			_drag_exceeded_threshold = false
+			if was_drag:
+				get_viewport().set_input_as_handled()
+		return
+
+	if event is InputEventMouseMotion and _drag_active:
+		var delta: Vector2 = event.position - _drag_start_pos
+		if not _drag_exceeded_threshold and delta.length() > DRAG_THRESHOLD:
+			_drag_exceeded_threshold = true
+		if _drag_exceeded_threshold:
+			# Content follows the finger 1:1: dragging up scrolls down.
+			_scroll.scroll_vertical = _drag_started_scroll - int(delta.y)
+			get_viewport().set_input_as_handled()
+
+func _on_viewport_resized() -> void:
+	if _scroll:
+		_scroll.custom_minimum_size = Vector2(_panel_width(), _panel_height())
+
 func close() -> void:
 	visible = false
+	_drag_active = false
+	_drag_exceeded_threshold = false
 	closed.emit()
 
 func is_open() -> bool:

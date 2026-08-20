@@ -1095,6 +1095,102 @@ comfortably inside the noise. Worth noting the redesigned build's two
 samples sit 1.5% apart while the old build's sit 12% apart. No
 measurable cost.
 
+### Traffic under the road, for real this time
+
+The round above fixed a bridge-height bug and reported traffic as sitting
+correctly on the road. Playtesting came straight back: "cars and people
+are still moving underneath the road and walkways. The road and building
+structures need to be layered underneath them."
+
+That framing was the clue, and the earlier fix was simply wrong -- not
+incomplete, wrong. **GridMap defaults `cell_center_y` to true**, so a tile
+placed in cell y=0 has its origin half a cell *up*: at `GRID_CELL_SIZE`
+1.0 that puts a flat road's drivable surface at **y = 0.52**, not 0.02.
+The previous round had added correct *relative* surface heights (0.02
+flat, 0.52 bridge) but measured them from a hard-coded `y = 0` baseline,
+which left every walker exactly half a cell under **every** road -- which
+is why it was never just the bridges, and why the previous round's
+verification passed while the game still looked wrong: it checked walkers
+against the same wrong baseline it had just written.
+
+The measurement that settled it, printed per cell rather than reasoned
+about:
+
+```
+cell_center_x=true cell_center_y=true cell_center_z=true
+gridmap tile origin y = 0.5     tile road SURFACE y = 0.52
+walker placed at    y = 0.02 -> walker is 0.5 BELOW the road surface
+```
+
+`_build_walk_graph()` now asks the GridMap where it actually put each
+tile (`map_to_local`) instead of assuming a baseline, so this stays
+correct if `cell_size` or the centering flags ever change. Re-verified
+across every cell, not a sample: **1702/1702 flat cells and 43/43 bridge
+cells on-surface, worst deviation 0.0 world units**, and all 18 walkers
+confirmed spawning at 0.52. The models themselves were re-measured too
+and cleared: every vehicle and the character rig has `y_min = 0`, so
+nothing sinks relative to its own origin. (An earlier partial measurement
+had suggested otherwise by reading only a car's *first* mesh child --
+a wheel, centred on its own axle -- which is exactly the trap
+`_load_mesh()`'s own comment warns about.)
+
+### Layout round: one top bar, taller panels, drag-scroll, resizable comms
+
+Four asks from the same playtest, plus one follow-up:
+
+- **"Move the pause and x1 x2 panel to the top right and make the top
+  panel bar all flow as one."** The speed pills moved into the stats bar
+  itself, which now spans edge to edge with hairline dividers between
+  groups instead of two floating cards with a gap.
+- **Taller dispatch queue.** Both docked panels now derive their height
+  from the real viewport instead of a fixed number.
+- **"The only way of scrolling... is on the side bar. This is too hard on
+  the screen."** A drag anywhere on a panel body now scrolls it. This is
+  handled in `_input` rather than the ScrollContainer's `gui_input`,
+  because the cards inside are Buttons that consume the press -- a drag
+  starting on a card, i.e. most of the panel, would never reach the
+  container. Taps still work: nothing is consumed unless the pointer
+  moves past a threshold, and only then is the release swallowed, so a
+  drag that begins on a card scrolls instead of also opening it.
+- **Resizable comms box.** The "Dispatcher Feed" tab is now a button that
+  cycles three heights. A tap target rather than a drag handle precisely
+  because the thin scroll bar had already proved too fiddly on a phone --
+  a thin resize edge would repeat that mistake.
+- **"The incident and resources panel should not overlap the comms
+  panel."** They now stop short of it with a clear gap, *and* re-size
+  whenever the feed does, so growing the comms box shrinks the panels
+  rather than being covered by them.
+
+Four layout bugs were caught by screenshotting real Web exports, each
+invisible to a headless check:
+
+1. **Panels ran off the bottom of the screen.** "Taller" was first
+   implemented as a flat 300px -- but the project stretches from a
+   640x360 base with aspect "expand", so the logical height stays ~360
+   and a panel starting at y=58 simply ran past the bottom edge and
+   through the feed. Now derived from the viewport.
+2. **The speed pills were pushed off the right edge**, unreachable,
+   because a Container propagates its children's minimum widths upward:
+   the bar's minimum became "every chip plus every pill". The stats now
+   sit in a plain `Control` (which reports only its own minimum) with
+   `clip_contents`, so chips clip on a narrow screen while the controls
+   stay put. Making the labels shrink instead was tried first and was
+   worse -- every chip ellipsised at once, leaving "17:00 (en...",
+   "CLEA", "6 AVA" across the whole bar.
+3. **The entire feed strip vanished.** `Control.position`'s setter
+   preserves the control's current size by moving `offset_bottom` with
+   `offset_top` -- and at build time that size is still 0, so
+   re-positioning the bottom-anchored wrapper pinned it to zero height.
+   All four offsets are now set explicitly.
+4. **The feed tab drew as bare floating text**, because a `flat` Button
+   skips drawing its stylebox entirely, so the overrides never painted.
+
+Verified on a real Web export end to end: zero console errors, the feed
+cycling 46 -> 104 -> 170 with the panels shrinking to match at each step,
+a drag from the middle of a unit card scrolling the list from Unit 1-3 to
+Unit 2-5, and a plain tap after that drag still opening Unit 2's detail
+panel -- i.e. drag-to-scroll did not eat ordinary taps.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
