@@ -1015,6 +1015,86 @@ this round is where that stopped being an abstract caveat: only
 back-to-back, same-session A/B/A/B runs are treated as signal from here
 on.
 
+### The HUD redesign
+
+The next round came with a design mockup and a blunt assessment of the
+old interface: "currently it just looks basic". It was -- raw engine
+default Buttons along the top, one ad-hoc `StyleBoxFlat` in `hud_view`
+for the feed, an unrelated one in `side_panel_view` for header bars, and
+no visual relationship between any of them.
+
+Two new modules carry the redesign. `ui_theme.gd` holds the whole visual
+language in one place -- palette, corner radii, and `StyleBoxFlat`
+factories for panels, cards, header strips, pills and badges -- so every
+piece of chrome is styled from the same source rather than each view
+inventing its own colours and margins. `ui_icon.gd` draws a small icon
+set (clock, rain/sun, shield, people, car, house, magnifier, hand,
+chevrons, alert, status ring) with Godot's own `_draw()` primitives. The
+mockup leans on icons everywhere and the project has no icon art; drawing
+them keeps them resolution-independent and recolourable per instance
+(every unit row tints the same car glyph to its own status colour), with
+no new binary asset or icon-font licence to track, and it stays
+consistent with the project's build-the-UI-in-code convention.
+
+What that buys, beyond looking better: the HUD can now *show state it
+previously couldn't*. Every speed button used to look identical whether
+or not it was the selected one -- there was no way to tell 1x from 4x
+without watching the clock. Now the active speed and the open panels are
+lit, and both read their real state (`GameClock.paused`/
+`speed_multiplier`, and each panel's own `is_open()`) rather than
+remembering which button was last tapped, so a pause triggered elsewhere
+or a panel closed by its own Close button can't drift out of sync.
+Incident rows gained a per-type glyph and a live state line ("Awaiting
+dispatch", "En route", "On Scene") in place of a queued call and a unit
+already at the scene looking identical, and the whole card became one tap
+target instead of just its first line -- on a phone, the rest of the row
+was most of its area.
+
+The compact metrics from earlier phone playtesting were deliberately
+**not** relaxed to match the mockup, which is a wide desktop frame: the
+11px text and thin two-row bar stay where real device testing put them,
+and only the mockup's *look* (shape, colour, hierarchy, icons) was
+adopted. The single metric that moved is `HUD_BOTTOM`, up 8px, because
+rounded cards need internal padding not to look clipped -- and everything
+docked below reads that constant rather than hard-coding its own top edge.
+
+Screenshotting a real Web export caught two layout bugs that headless
+checks could not have:
+
+- **Icons distorted.** Containers stretch a plain `Control` to fill the
+  axis they lay out against, so an icon in a three-line card row got
+  pulled tall -- and since each glyph is authored in normalised 0..1
+  coordinates, the artwork stretched with it: the car rendered elongated
+  with its wheels detached below the body as two stray dots. Fixed with
+  `SIZE_SHRINK_CENTER` on both axes, plus `_p()` now mapping into the
+  largest centred *square* that fits, so a stretch is harmless even if
+  one gets through.
+- **A docked panel slid off-screen.** These panels set
+  `horizontal_scroll_mode = DISABLED`, which makes the `ScrollContainer`
+  adopt its child's horizontal minimum size -- so one non-wrapping
+  `Label` pushed the whole panel wider than `_panel_width()`, and since a
+  right-anchored panel is positioned at `-(width + 8)`, growing it slid
+  it straight off the right edge. The "Dispatch Queue" header did exactly
+  that, hiding its own incident rows. Fixed-line labels now clip and
+  ellipsise; wrapping labels (which report a near-zero minimum) were left
+  alone, and the header dropped to 10px so it reads in full beside the
+  scroll bar.
+
+A third, smaller one: `RichTextLabel` underlines `[url]` spans by
+default, so every tappable feed line rendered underlined end to end.
+`meta_underlined = false` keeps the tap target without the hyperlink
+styling.
+
+Frame time was checked with the back-to-back A/B/A/B method this round
+established, since the redesign adds real Control nodes and custom
+`_draw()` calls. The redesigned build measured **1308ms and 1328ms**
+against the pre-redesign build's **1613ms and 1438ms** on the same
+machine minutes apart -- i.e. the new UI measured *faster* in both
+samples, which is not a real speedup so much as proof the difference is
+comfortably inside the noise. Worth noting the redesigned build's two
+samples sit 1.5% apart while the old build's sit 12% apart. No
+measurable cost.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a
