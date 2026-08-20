@@ -939,6 +939,82 @@ place in a real screenshot -- a winding river with a road crossing it,
 one legible grid of streets spanning district cores and the lighter
 infill fringe alike, no visible seam or second road system anywhere.
 
+Two real screenshots from that build then found three genuine bugs, all
+of which had shipped: "the water does not look right... it's cutting
+right through roads and buildings", and "people and cars are moving
+underneath the road and houses, not on them?" Three separate causes, each
+confirmed by measurement rather than assumed:
+
+1. **The road-bridge swap was dead code.** `_build_infill()`'s main loop
+   opened with `if _occupied_cells.has(cell) or water_cells.has(cell) or
+   park_cells.has(cell): continue` -- so *every* water cell was skipped
+   before reaching the branches below that would have swapped a street
+   cell to `road-bridge`. The bridge code existed, read correctly, and
+   could never run: wherever a street met the river, the street simply
+   stopped, leaving a hole in the network. Now only *non-street* water
+   cells skip early (`if crosses_water and not is_street_col and not
+   is_street_row`), so a street crossing water falls through and becomes
+   a real bridge. Headless check after the fix: 43 `road-bridge` cells
+   actually placed, against 0 before.
+2. **The river never checked what it was crossing.** `_build_river()`
+   picked its start/bend/end from the *whole* infill area's bounding box,
+   corner to corner. Since the six districts sit in the middle of that
+   box (infill is the ring of ground around them), a corner-to-corner
+   diagonal runs straight through the middle of town -- and nothing
+   validated the line it drew. That is exactly the screenshot: water
+   cutting through buildings and roads. Rewritten to pick candidate
+   endpoints from real infill cells and validate the whole path with a
+   new `_polyline_clear_of_districts()`, which samples every 0.5 units
+   along each segment and tests the centreline *plus* both
+   `RIVER_RESERVE_RADIUS` perpendicular offsets against every district's
+   real polygon -- so the reserved band stays clear, not just the
+   mathematical line through its middle. It retries up to
+   `RIVER_PATH_ATTEMPTS` (60) times with fresh endpoints and, if nothing
+   validates, ships **no river at all** rather than one through a
+   building. Headless check after the fix: 0 of the river mesh's 12
+   vertices land inside any district polygon.
+3. **Walkers ignored the height of what they were walking on.** This is
+   the "underneath the road" half, and the measurement is the whole
+   story: `_build_walk_graph()` placed every RoadWalker position at
+   y = 0, but a `road-bridge.glb`'s own AABB is **0.52 units tall**
+   against a flat `road-straight`/`road-crossroad`'s **0.02**. So a car
+   or pedestrian crossing a bridge sat half a unit *below* the deck it
+   was supposed to be driving over. Fixed by recording each street cell's
+   real surface height in a new `_street_cell_height` dictionary as the
+   tile is placed, and offsetting the walk graph's position by it.
+   Verified headless per-cell rather than in aggregate: all 43 bridge
+   cells sit at exactly `ROAD_BRIDGE_SURFACE_HEIGHT`, all 1702 flat
+   street cells at `ROAD_SURFACE_HEIGHT`, 0 mismatches either way.
+
+Worth being explicit about what was *ruled out* rather than fixed: the
+0.02-unit flat-road offset is visually negligible on its own, so the
+bridge case is the entire visible effect -- and a separate headless sweep
+of all 113 building GLBs (suburban/commercial/industrial/modular) found
+**0** whose mesh AABB sits off ground level, ruling out a sunken-origin
+bug of the kind an earlier round hit with `rocks-high` as a contributing
+cause of the "underneath the houses" report.
+
+The frame-time check on this round is worth recording honestly, because
+it turned into a lesson about the *measurement* rather than the code. The
+first sample read 1355ms/frame against the previous round's recorded
+1127ms -- about 20% worse, which would be a real regression if true. It
+isn't. Re-running the **identical build, same URL, same sandbox** a
+little later measured 1613ms: a 19% swing with zero code difference
+between the two runs. This sandbox has no GPU (software WebGL via
+SwiftShader) and shares a noisy container, so its run-to-run noise floor
+is comfortably wider than any effect these changes could have. The
+content delta was measured directly instead, which is the number that
+actually means something here: GridMap cells went 3502 -> 3562, **+60
+cells (+1.7%)** -- the 43 newly-placed bridge tiles plus the relocated
+river's knock-on effect on which cells get built on. A 1.7% content
+change cannot produce a 20% frame-time change. The previous round's 2x
+regression was far outside this noise floor, so it was real and worth
+chasing; a difference this size simply isn't measurable in this
+environment. Cross-session absolute numbers are not comparable here, and
+this round is where that stopped being an abstract caveat: only
+back-to-back, same-session A/B/A/B runs are treated as signal from here
+on.
+
 **One-time setup to make the link live** (repo owner only, ~30 seconds):
 1. Go to the repo's **Settings -> Pages**.
 2. Under "Build and deployment" -> "Source", choose **Deploy from a

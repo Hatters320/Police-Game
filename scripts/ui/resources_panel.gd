@@ -34,7 +34,7 @@ func _panel_anchor() -> int:
 ## Slim docked strip, not the 360-wide default every detail panel wants --
 ## this is always on screen, so it needs to leave the map usable beside it.
 func _panel_width() -> float:
-	return 110.0
+	return 132.0
 
 func wire(map_view: MapView, unit_panel: UnitPanelView) -> void:
 	_map_view = map_view
@@ -64,7 +64,7 @@ func refresh() -> void:
 	if not is_open():
 		return
 	clear_content()
-	add_header_bar("Resources")
+	add_header_bar("Unit Management")
 
 	var resource_manager: ResourceManager = Simulation.core.resource_manager
 	for unit: PoliceUnit in resource_manager.units.values():
@@ -74,17 +74,26 @@ func refresh() -> void:
 	if not specialist_manager.units.is_empty():
 		add_divider()
 		for unit: SpecialistUnit in specialist_manager.units.values():
-			add_card(SPECIALIST_ACCENT, unit.display_name, specialist_manager.status_text(unit))
+			add_card(SPECIALIST_ACCENT, unit.display_name, specialist_manager.status_text(unit), Callable(), UiIcon.Kind.SHIELD)
 
 	var neighbourhood_manager: NeighbourhoodManager = Simulation.core.neighbourhood_manager
 	if not neighbourhood_manager.officers.is_empty():
 		add_divider()
 		for officer: NeighbourhoodOfficer in neighbourhood_manager.officers.values():
-			add_card(NEIGHBOURHOOD_ACCENT, officer.officer_name, neighbourhood_manager.status_text(officer))
+			add_card(NEIGHBOURHOOD_ACCENT, officer.officer_name, neighbourhood_manager.status_text(officer), Callable(), UiIcon.Kind.PEOPLE)
 
 func _add_unit_card(unit: PoliceUnit) -> void:
 	var accent: Color = STATUS_COLORS.get(unit.status, Color.GRAY)
-	add_card(accent, unit.callsign, "%s -- %s" % [_status_text(unit), _location_text(unit)], _on_unit_row_pressed.bind(unit.id))
+	# The mockup puts a vehicle glyph on the right of every unit row --
+	# a patrol unit is a car, so the same glyph serves all of them here
+	# (specialists/neighbourhood officers below get their own).
+	add_card(
+		accent,
+		unit.callsign,
+		"%s -- %s" % [_status_text(unit), _location_text(unit)],
+		_on_unit_row_pressed.bind(unit.id),
+		UiIcon.Kind.CAR,
+	)
 
 func _status_text(unit: PoliceUnit) -> String:
 	match unit.status:

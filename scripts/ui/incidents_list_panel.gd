@@ -13,7 +13,7 @@ var _map_view: MapView
 var _incident_panel: IncidentPanelView
 
 func _panel_width() -> float:
-	return 110.0
+	return 132.0
 
 func wire(map_view: MapView, incident_panel: IncidentPanelView) -> void:
 	_map_view = map_view
@@ -46,7 +46,7 @@ func refresh() -> void:
 	if not is_open():
 		return
 	clear_content()
-	add_header_bar("Active Incidents")
+	add_header_bar("Dispatch Queue")
 
 	# active_incidents.erase() for a just-resolved incident happens slightly
 	# after IncidentManager emits incident_resolved -- is_open() filters it
@@ -72,7 +72,39 @@ func refresh() -> void:
 			"P%d %s" % [incident.priority, incident.type_id],
 			incident.location_id,
 			_on_incident_row_pressed.bind(incident.id),
+			_icon_for(incident),
+			_state_text(incident),
 		)
+
+## Per-incident-type glyph, matching the mockup's right-hand icon on each
+## dispatch row -- a house for anything domestic/residential, a magnifier
+## for acquisitive crime worth investigating, a hand for violence/public
+## order (something officers physically intervene in), falling back to a
+## generic alert triangle for anything the type list grows later.
+func _icon_for(incident: Incident) -> int:
+	var type_id: String = incident.type_id.to_lower()
+	if type_id.contains("domestic") or type_id.contains("burglary") or type_id.contains("welfare"):
+		return UiIcon.Kind.HOUSE
+	if type_id.contains("shoplifting") or type_id.contains("theft") or type_id.contains("suspicious"):
+		return UiIcon.Kind.MAGNIFIER
+	if type_id.contains("assault") or type_id.contains("violence") or type_id.contains("asb") or type_id.contains("disorder"):
+		return UiIcon.Kind.HAND
+	return UiIcon.Kind.ALERT
+
+## Player-facing wording for the incident's current state -- the mockup's
+## third line per row ("On Scene", "Assigned"). Reads the real state
+## rather than just "dispatched or not", so a queued call and a unit
+## already at the scene no longer look identical in this list.
+func _state_text(incident: Incident) -> String:
+	match incident.state:
+		GameEnums.IncidentState.CREATED, GameEnums.IncidentState.REPORTED: return "New call"
+		GameEnums.IncidentState.ASSESSED: return "Assessing"
+		GameEnums.IncidentState.QUEUED: return "Awaiting dispatch"
+		GameEnums.IncidentState.ASSIGNED: return "Assigned"
+		GameEnums.IncidentState.TRAVELLING: return "En route"
+		GameEnums.IncidentState.ON_SCENE: return "On Scene"
+		GameEnums.IncidentState.DEVELOPING: return "Developing"
+		_: return ""
 
 func _on_incident_row_pressed(incident_id: String) -> void:
 	var marker: Node2D = _map_view._incident_markers.get(incident_id) if _map_view else null

@@ -264,6 +264,18 @@ const FILLER_SEED := 990817
 ## positions.
 const GRID_CELL_SIZE := 1.0
 
+## Real drivable-surface Y heights, measured directly (tests/
+## measure_road_y.gd-style headless AABB checks, not guessed): a flat
+## road-straight/road-crossroad tile's own top surface sits at 0.02, a
+## road-bridge tile's at 0.52. RoadWalker positions read whichever one
+## applies per cell (_street_cell_height) so a car/pedestrian sits visibly
+## on top of the surface it's actually driving/walking on -- real
+## playtesting reported traffic reading as "moving underneath the road and
+## houses," and a flat 0.02 is imperceptible, but a bridge deck 0.5 units
+## above where a walker's own Y=0 base would otherwise sit is not.
+const ROAD_SURFACE_HEIGHT := 0.02
+const ROAD_BRIDGE_SURFACE_HEIGHT := 0.52
+
 ## Cells between streets, per land use -- smaller means a tighter grid
 ## with more, closer-together streets (a dense town-centre feel); bigger
 ## means larger blocks with more building-to-building distance along a
@@ -440,6 +452,12 @@ const RIVER_WIDTH := 2.4
 ## reserved as water -- wide enough that the RIVER_WIDTH ribbon never
 ## visibly spills past the reserved (building-free) band.
 const RIVER_RESERVE_RADIUS := 1.6
+## How many random start/bend/end candidate paths _build_river() tries
+## before giving up and skipping the river entirely -- validated against
+## every district's real polygon each time (see _polyline_clear_of_
+## districts()), so a river never ships cutting through a district's
+## buildings/roads the way a real screenshot once showed it doing.
+const RIVER_PATH_ATTEMPTS := 60
 
 ## A handful of dedicated park blocks within the infill area -- real
 ## rectangular zones with zero buildings and dense tree/nature cover,
@@ -487,6 +505,16 @@ var _district_offset: Dictionary = {}
 ## already links every district into one component (see the class doc
 ## comment).
 var _street_cells: Dictionary = {}
+## Vector2i street cell -> the real Y height of that cell's own road
+## surface (ROAD_SURFACE_HEIGHT for a flat road-straight/road-crossroad
+## tile, ROAD_BRIDGE_SURFACE_HEIGHT for a road-bridge tile), populated
+## alongside _street_cells wherever a road tile is placed. RoadWalker
+## traffic/pedestrians read this via _build_walk_graph() so a car actually
+## sits on top of a bridge deck instead of at water level underneath it --
+## measured directly: road-bridge.glb's own AABB is 0.52 units tall
+## against a flat road's 0.02, a difference real enough to visibly place a
+## walker under the bridge deck it's meant to be crossing.
+var _street_cell_height: Dictionary = {}
 
 ## Shared AnimationLibrary resources extracted once from idle.fbx/run.fbx,
 ## reused by every pedestrian's own runtime AnimationPlayer rather than
@@ -800,15 +828,18 @@ func _build_district_blocks() -> void:
 					_grid_map.set_cell_item(grid_pos, _road_crossroad_item)
 					_occupied_cells[cell] = true
 					_street_cells[cell] = cell_center_3d
+					_street_cell_height[cell] = ROAD_SURFACE_HEIGHT
 				elif is_street_col:
 					var vertical: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, PI * 0.5))
 					_grid_map.set_cell_item(grid_pos, _road_straight_item, vertical)
 					_occupied_cells[cell] = true
 					_street_cells[cell] = cell_center_3d
+					_street_cell_height[cell] = ROAD_SURFACE_HEIGHT
 				elif is_street_row:
 					_grid_map.set_cell_item(grid_pos, _road_straight_item)
 					_occupied_cells[cell] = true
 					_street_cells[cell] = cell_center_3d
+					_street_cell_height[cell] = ROAD_SURFACE_HEIGHT
 				elif rng.randf() < OPEN_CELL_CHANCE:
 					# Left as bare ground -- deliberately not marked
 					# occupied unless a decoration lands here, so the
@@ -892,18 +923,30 @@ func _build_infill() -> void:
 	var item_ids_by_land_use: Dictionary = {}
 
 	for cell in candidate_cells:
-		if _occupied_cells.has(cell) or water_cells.has(cell) or park_cells.has(cell):
+		if _occupied_cells.has(cell) or park_cells.has(cell):
 			continue
 		var cell_center_3d: Vector3 = _cell_center_3d(cell)
 		var is_street_col: bool = posmod(cell.x, INFILL_BLOCK_SIZE + 1) == 0
 		var is_street_row: bool = posmod(cell.y, INFILL_BLOCK_SIZE + 1) == 0
 		var grid_pos := Vector3i(cell.x, 0, cell.y)
 		var crosses_water: bool = water_cells.has(cell)
+		# A non-street cell that's in the water band stays untouched here --
+		# left as bare water (the river/lake mesh itself renders it), never
+		# a building or ground decoration. A *street* cell in the water band
+		# still needs to fall through to the branches below so it can swap
+		# to road-bridge instead of just vanishing -- an earlier version of
+		# this loop `continue`d on any water cell unconditionally, which
+		# made the road-bridge swap below genuinely unreachable and left a
+		# gap in the road network wherever a street crossed the river.
+		if crosses_water and not is_street_col and not is_street_row:
+			continue
 
+		var surface_height: float = ROAD_BRIDGE_SURFACE_HEIGHT if crosses_water else ROAD_SURFACE_HEIGHT
 		if is_street_col and is_street_row:
 			_grid_map.set_cell_item(grid_pos, _road_bridge_item if crosses_water else _road_crossroad_item)
 			_occupied_cells[cell] = true
 			_street_cells[cell] = cell_center_3d
+			_street_cell_height[cell] = surface_height
 		elif is_street_col:
 			if crosses_water:
 				_grid_map.set_cell_item(grid_pos, _road_bridge_item)
@@ -912,10 +955,12 @@ func _build_infill() -> void:
 				_grid_map.set_cell_item(grid_pos, _road_straight_item, vertical)
 			_occupied_cells[cell] = true
 			_street_cells[cell] = cell_center_3d
+			_street_cell_height[cell] = surface_height
 		elif is_street_row:
 			_grid_map.set_cell_item(grid_pos, _road_bridge_item if crosses_water else _road_straight_item)
 			_occupied_cells[cell] = true
 			_street_cells[cell] = cell_center_3d
+			_street_cell_height[cell] = surface_height
 		else:
 			var land_use: LandUse = _nearest_district_land_use(cell_center_3d)
 			if decor_rng.randf() < INFILL_OPEN_CELL_CHANCE:
@@ -1000,44 +1045,54 @@ func _nearest_district_land_use(point_3d: Vector3) -> LandUse:
 			best_district = district.id
 	return _land_use_for_district(best_district)
 
-## One river, laid out as a 3-point polyline spanning the infill area
-## (start/bend/end picked from the real candidate cells' own bounding
-## box, not guessed coordinates), reserved as every candidate cell within
-## RIVER_RESERVE_RADIUS of that polyline (returned, so _build_infill()
-## skips buildings/decor there and swaps any street cell inside it for
-## road-bridge) plus the actual visible water rendered as a SurfaceTool
-## ribbon along the same polyline -- the same two-part "reserve the
-## footprint, render the real mesh separately" pattern _build_roads()
-## already uses for the arterial network.
+## One river, laid out as a 3-point polyline entirely within the infill
+## area, reserved as every candidate cell within RIVER_RESERVE_RADIUS of
+## that polyline (returned, so _build_infill() skips buildings/decor there
+## and swaps any street cell inside it for road-bridge) plus the actual
+## visible water rendered as a SurfaceTool ribbon along the same polyline
+## -- the same two-part "reserve the footprint, render the real mesh
+## separately" pattern the old arterial network used.
+##
+## A first version picked corner_a/corner_b from the *whole* infill area's
+## bounding box, corner to corner -- and since the six districts sit
+## roughly in the middle of that box (infill is the ring of ground around
+## them), a real screenshot showed exactly what that produces: a diagonal
+## line cutting straight through a district's own buildings and roads,
+## with nothing checking whether the line it drew actually stayed on
+## infill ground. Districts are the one thing route_2d/route_3d below
+## must never cross, checked properly this time: every sample point along
+## a candidate path, not just its three corner/bend vertices, tested with
+## _point_in_any_district() plus a perpendicular RIVER_RESERVE_RADIUS
+## offset on both sides (so the *reserved band*, not just the centreline,
+## stays clear) -- retried with a fresh random pair of real infill cells
+## up to RIVER_PATH_ATTEMPTS times, and skipped entirely (no river at all)
+## rather than shipped cutting through a building if none validates.
 func _build_river(candidate_cells: Array, rng: RandomNumberGenerator) -> Dictionary:
-	if candidate_cells.is_empty():
-		return {}
-	var min_cell := Vector2i(2147483647, 2147483647)
-	var max_cell := Vector2i(-2147483648, -2147483648)
-	for cell in candidate_cells:
-		min_cell = Vector2i(mini(min_cell.x, cell.x), mini(min_cell.y, cell.y))
-		max_cell = Vector2i(maxi(max_cell.x, cell.x), maxi(max_cell.y, cell.y))
-	if max_cell.x - min_cell.x < 6 or max_cell.y - min_cell.y < 6:
+	if candidate_cells.size() < 40:
 		return {} # infill area too small for a believable river
 
-	# A gentle diagonal, corner to corner, with one bend partway along --
-	# reads as a real winding river rather than a single straight cut.
-	var corner_a := Vector2(min_cell.x, min_cell.y)
-	var corner_b := Vector2(max_cell.x, max_cell.y)
-	if rng.randf() < 0.5:
-		corner_a = Vector2(min_cell.x, max_cell.y)
-		corner_b = Vector2(max_cell.x, min_cell.y)
-	var mid: Vector2 = corner_a.lerp(corner_b, 0.5)
-	var perp: Vector2 = (corner_b - corner_a).orthogonal().normalized()
-	mid += perp * (corner_a.distance_to(corner_b) * 0.15) * (1.0 if rng.randf() < 0.5 else -1.0)
-
-	var points_2d: Array = [corner_a, mid, corner_b]
 	var points_3d: Array = []
-	for p in points_2d:
-		points_3d.append(_cell_center_3d(Vector2i(roundi(p.x), roundi(p.y))))
+	for attempt in RIVER_PATH_ATTEMPTS:
+		var corner_a: Vector2i = candidate_cells[rng.randi() % candidate_cells.size()]
+		var corner_b: Vector2i = candidate_cells[rng.randi() % candidate_cells.size()]
+		if Vector2(corner_a).distance_to(Vector2(corner_b)) < 8.0:
+			continue
+		var mid: Vector2 = Vector2(corner_a).lerp(Vector2(corner_b), 0.5)
+		var perp: Vector2 = (Vector2(corner_b) - Vector2(corner_a)).orthogonal().normalized()
+		mid += perp * (Vector2(corner_a).distance_to(Vector2(corner_b)) * 0.15) * (1.0 if rng.randf() < 0.5 else -1.0)
+		var mid_cell := Vector2i(roundi(mid.x), roundi(mid.y))
+
+		var candidate_points: Array = [
+			_cell_center_3d(corner_a), _cell_center_3d(mid_cell), _cell_center_3d(corner_b),
+		]
+		if _polyline_clear_of_districts(candidate_points):
+			points_3d = candidate_points
+			break
+
+	if points_3d.is_empty():
+		return {} # no path found that stays off every district -- skip rather than cut through one
 
 	var water_cells: Dictionary = {}
-	var radius_i: int = ceili(RIVER_RESERVE_RADIUS)
 	for cell in candidate_cells:
 		var p: Vector3 = _cell_center_3d(cell)
 		if _distance_to_polyline(p, points_3d) <= RIVER_RESERVE_RADIUS:
@@ -1059,6 +1114,30 @@ func _build_river(candidate_cells: Array, rng: RandomNumberGenerator) -> Diction
 	add_child(inst)
 
 	return water_cells
+
+## True only if every sample point along the polyline -- and, at each
+## sample, points offset RIVER_RESERVE_RADIUS to both sides along the
+## local perpendicular -- lands outside every district's real polygon.
+## Sampling the offset points too (not just the centreline) is what
+## actually keeps the *reserved band* clear, not just the mathematical
+## line through its middle.
+func _polyline_clear_of_districts(points_3d: Array) -> bool:
+	for i in points_3d.size() - 1:
+		var a: Vector3 = points_3d[i]
+		var b: Vector3 = points_3d[i + 1]
+		var seg: Vector3 = b - a
+		var length: float = seg.length()
+		if length < 0.01:
+			continue
+		var dir: Vector3 = seg / length
+		var side: Vector3 = dir.cross(Vector3.UP).normalized() * RIVER_RESERVE_RADIUS
+		var steps: int = maxi(4, ceili(length / 0.5))
+		for s in steps + 1:
+			var t: float = float(s) / float(steps)
+			var p: Vector3 = a.lerp(b, t)
+			if _point_in_any_district(p) or _point_in_any_district(p + side) or _point_in_any_district(p - side):
+				return false
+	return true
 
 func _distance_to_polyline(point: Vector3, points_3d: Array) -> float:
 	var best := INF
@@ -1228,7 +1307,8 @@ func _build_walk_graph() -> Dictionary:
 	var adjacency: Dictionary = {}
 
 	for cell in _street_cells:
-		positions[cell] = _street_cells[cell]
+		var height: float = _street_cell_height.get(cell, ROAD_SURFACE_HEIGHT)
+		positions[cell] = _street_cells[cell] + Vector3(0, height, 0)
 		var neighbours: Array = []
 		for delta in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 			var neighbour: Vector2i = cell + delta

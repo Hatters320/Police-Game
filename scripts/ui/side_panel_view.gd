@@ -53,6 +53,10 @@ func _ready() -> void:
 	visible = false
 
 	var panel := PanelContainer.new()
+	# Rounded translucent card rather than Godot's default opaque grey
+	# panel, per the supplied mockup -- the town stays faintly readable
+	# behind the docked panels instead of being squared off by them.
+	panel.add_theme_stylebox_override("panel", UiTheme.panel_style())
 	var anchor: int = _panel_anchor()
 	panel.set_anchors_preset(anchor)
 	var width: float = _panel_width()
@@ -135,64 +139,128 @@ func add_dim_line(text: String) -> void:
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD
 	content.add_child(label)
 
-## Styled title strip (dark navy fill + bold caps label) for the always-
-## docked Resources/Incidents panels -- closer to the mockup's header bars
-## than add_title()'s plain label. Kept separate from add_title so every
-## existing detail panel is untouched.
-const HEADER_BAR_COLOR := Color(0.09, 0.16, 0.28)
+## Styled title strip for the always-docked Resources/Incidents panels --
+## the mockup's "Unit Management" / "Dispatch Queue" header rows: a
+## rounded fill, title-case (not shouted caps) label, and a chevron on the
+## right hinting the panel is collapsible. Kept separate from add_title so
+## every existing detail panel is untouched.
+const HEADER_BAR_COLOR := UiTheme.HEADER_BG
 func add_header_bar(text: String) -> void:
 	var bar := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = HEADER_BAR_COLOR
-	style.content_margin_left = 6
-	style.content_margin_right = 6
-	style.content_margin_top = 3
-	style.content_margin_bottom = 3
-	bar.add_theme_stylebox_override("panel", style)
-	var label := Label.new()
-	label.text = text.to_upper()
-	label.add_theme_font_size_override("font_size", 12)
-	label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
-	bar.add_child(label)
+	bar.add_theme_stylebox_override("panel", UiTheme.header_style())
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	bar.add_child(row)
+	# 10px, not the body's 11: a docked panel is only _panel_width() wide
+	# and loses ~12 more to the scroll bar, so at 11px "Unit Management"
+	# ellipsised to "Unit Manageme..." in a real screenshot. The header is
+	# the one label that should always read in full -- it names the panel.
+	var label := _clipping_label(text, 10, UiTheme.HEADER_TEXT)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(label)
+	row.add_child(UiIcon.new(UiIcon.Kind.CHEVRON_DOWN, UiTheme.TEXT_DIM, 10.0))
 	content.add_child(bar)
 
-## Compact status card -- a colour accent strip plus a bold primary line
-## and a dim secondary line, standing in for the mockup's colour-coded
-## unit/incident rows since real per-type icon art isn't available this
-## pass. on_pressed, when given, makes the whole card tappable (a button
-## for the primary line); omit it for an informational-only row.
-func add_card(accent_color: Color, primary_text: String, secondary_text: String, on_pressed: Callable = Callable()) -> void:
+## A single-line Label that reports (almost) no minimum width, ellipsising
+## instead of forcing its container wider.
+##
+## This matters because these docked panels set
+## horizontal_scroll_mode = DISABLED (see _ready above), which makes the
+## ScrollContainer adopt its child's own horizontal minimum size. Any
+## non-wrapping Label inside therefore *pushes the whole panel wider than
+## _panel_width()* -- and since a right-anchored panel is positioned at
+## -(width + 8), growing it slides it straight off the right edge of the
+## screen. A real screenshot caught exactly that: the "Dispatch Queue"
+## header ran the panel off-screen, hiding its own incident rows. Every
+## fixed-line label in a docked panel goes through here so no single long
+## callsign, district name, or header can do that again.
+func _clipping_label(text: String, font_size: int, color: Color) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	label.clip_text = true
+	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	label.custom_minimum_size = Vector2(0, 0)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label
+
+## Multi-line supporting text. Safe to widen a panel with (autowrap makes
+## the reported minimum width near-zero), so this is the right choice
+## wherever the full string genuinely matters.
+func _wrapping_label(text: String, font_size: int, color: Color) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label
+
+## Compact status card, matching the mockup's colour-coded unit/incident
+## rows: a rounded raised fill with a coloured left edge, a status ring on
+## the left, a bold primary line over a dim secondary line, and an
+## optional type glyph on the right.
+##
+## The whole card is one tap target when on_pressed is given -- previously
+## only the primary line was a Button, so tapping the (visually identical)
+## second line or the accent strip did nothing, which on a phone is most
+## of the row's area. A flat Button holding the layout, with every child
+## set to MOUSE_FILTER_IGNORE, is what makes the entire card respond.
+##
+## `leading_icon`/`trailing_icon` default to RING/none so existing callers
+## that pass neither still get the previous shape.
+func add_card(
+	accent_color: Color,
+	primary_text: String,
+	secondary_text: String,
+	on_pressed: Callable = Callable(),
+	trailing_icon: int = -1,
+	status_text: String = "",
+) -> void:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UiTheme.card_style(accent_color))
+	content.add_child(card)
+
+	# A flat Button *behind* the content gives the whole card a single tap
+	# target without the layout having to live inside the Button itself
+	# (Godot Buttons size to their own text, not to added children).
+	if on_pressed.is_valid():
+		var hit := Button.new()
+		hit.flat = true
+		hit.set_anchors_preset(Control.PRESET_FULL_RECT)
+		hit.pressed.connect(on_pressed)
+		card.add_child(hit)
+
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
-	content.add_child(row)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(row)
 
-	var accent := ColorRect.new()
-	accent.color = accent_color
-	accent.custom_minimum_size = Vector2(5, 0)
-	row.add_child(accent)
+	var ring := UiIcon.new(UiIcon.Kind.RING, accent_color, 13.0)
+	row.add_child(ring)
 
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	col.add_theme_constant_override("separation", 0)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(col)
 
-	if on_pressed.is_valid():
-		var button := Button.new()
-		button.text = primary_text
-		button.flat = true
-		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		button.add_theme_font_size_override("font_size", 11)
-		button.pressed.connect(on_pressed)
-		col.add_child(button)
-	else:
-		var label := Label.new()
-		label.text = primary_text
-		label.add_theme_font_size_override("font_size", 11)
-		col.add_child(label)
+	# Title clips: a callsign is a short identifier, and truncating one is
+	# far better than letting it widen (and so slide off-screen) the whole
+	# panel. The lines below it wrap instead -- an autowrapping Label
+	# reports a near-zero minimum width, so it is already safe from the
+	# overflow described on _clipping_label, and wrapping shows a district
+	# name or queue state in full rather than cutting it short.
+	col.add_child(_clipping_label(primary_text, 11, UiTheme.TEXT_PRIMARY))
+	col.add_child(_wrapping_label(secondary_text, 9, UiTheme.TEXT_DIM))
 
-	var sub := Label.new()
-	sub.text = secondary_text
-	sub.add_theme_font_size_override("font_size", 9)
-	sub.modulate = Color(0.65, 0.7, 0.8)
-	sub.autowrap_mode = TextServer.AUTOWRAP_WORD
-	col.add_child(sub)
+	# The mockup's third line ("On Scene", "Assigned") -- the row's live
+	# state, tinted to the same accent as its edge so state and colour
+	# reinforce each other rather than the colour being the only cue.
+	if status_text != "":
+		col.add_child(_wrapping_label(status_text, 9, accent_color))
+
+	if trailing_icon >= 0:
+		row.add_child(UiIcon.new(trailing_icon as UiIcon.Kind, UiTheme.TEXT_DIM, 13.0))

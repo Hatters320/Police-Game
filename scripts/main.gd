@@ -213,10 +213,19 @@ func _ready() -> void:
 	# on, for a player who wants to reclaim map space on a small screen.
 	hud_view.wire_resources_panel(func():
 		if resources_panel.is_open(): resources_panel.close()
-		else: resources_panel.open())
+		else: resources_panel.open()
+		_refresh_panel_pills())
 	hud_view.wire_incidents_panel(func():
 		if incidents_list_panel.is_open(): incidents_list_panel.close()
-		else: incidents_list_panel.open())
+		else: incidents_list_panel.open()
+		_refresh_panel_pills())
+	# A panel can also be closed by its own Close button or by
+	# close_other_panels arbitration, not just by its HUD pill -- so the
+	# pills re-read real panel state rather than tracking their own taps,
+	# which would drift out of sync the moment either of those happened.
+	neighbourhood_panel.closed.connect(_refresh_panel_pills)
+	resources_panel.closed.connect(_refresh_panel_pills)
+	incidents_list_panel.closed.connect(_refresh_panel_pills)
 	hud_view.hide()
 
 	_begin_briefing(next_shift_number)
@@ -408,6 +417,19 @@ func _on_briefing_confirmed() -> void:
 	# actually starts, not on the briefing/debrief screens either side of it.
 	resources_panel.open()
 	incidents_list_panel.open()
+	_refresh_panel_pills()
+
+## Keeps the HUD's Team/Res/Inc pills lit in step with which panels are
+## actually open -- the mockup shows the current panel called out this
+## way, and reading real panel state (rather than remembering taps) means
+## a panel closed by its own Close button, or by close_other_panels
+## arbitration, still updates its pill.
+func _refresh_panel_pills() -> void:
+	if hud_view == null:
+		return
+	hud_view.set_panel_active("Team", neighbourhood_panel.is_open())
+	hud_view.set_panel_active("Res", resources_panel.is_open())
+	hud_view.set_panel_active("Inc", incidents_list_panel.is_open())
 
 func _on_shift_ended(summary: Dictionary) -> void:
 	_gameplay_active = false
