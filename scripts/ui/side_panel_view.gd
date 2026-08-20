@@ -124,6 +124,12 @@ func _ready() -> void:
 		# had been opened (the top bar measured (39,52,75) before this and
 		# (17,25,39) after, i.e. dimmed while supposedly hidden).
 		_scrim.visible = false
+		# Tapping outside the pop-up dismisses it. Without this the scrim
+		# swallowed the tap and did nothing with it, so the only way out was
+		# the Close button at the bottom of the panel's own scroll -- real
+		# playtesting: "the pop up got stuck on the page and then I couldn't
+		# remove it by clicking off of it."
+		_scrim.gui_input.connect(_on_scrim_input)
 		add_child(_scrim)
 
 	var panel := PanelContainer.new()
@@ -146,6 +152,22 @@ func _ready() -> void:
 			panel.position = Vector2(-(width + 8.0), PANEL_TOP_Y)
 	add_child(panel)
 	_panel = panel
+
+	# An always-visible dismiss control, pinned to the panel's own top-right
+	# corner rather than living in the scrolling content. The Close button
+	# at the end of add_close_button() scrolls away with everything else,
+	# which on a long incident pop-up means the exit is off-screen exactly
+	# when a player wants it.
+	if _is_modal():
+		var dismiss := Button.new()
+		dismiss.text = "X"
+		dismiss.custom_minimum_size = Vector2(22, 20)
+		dismiss.add_theme_font_size_override("font_size", 11)
+		UiTheme.style_pill_button(dismiss, false)
+		dismiss.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		dismiss.position = Vector2(-26, 2)
+		dismiss.pressed.connect(close)
+		panel.add_child(dismiss)
 
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(width, _panel_height())
@@ -176,6 +198,13 @@ func _ready() -> void:
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 4)
 	scroll.add_child(content)
+
+## Dismisses the pop-up when the player taps the dimmed area outside it.
+func _on_scrim_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		close()
+	elif event is InputEventScreenTouch and not event.pressed:
+		close()
 
 ## A panel accepts drag-scrolling only when nothing modal sits above it.
 func _drag_scroll_allowed() -> bool:

@@ -69,6 +69,33 @@ func _process(delta: float) -> void:
 	_scroll.scroll_vertical = int(_scroll.scroll_vertical - _velocity * delta)
 	_velocity = move_toward(_velocity, 0.0, FRICTION * absf(_velocity) * delta + 20.0 * delta)
 
+## Buttons neutralised for the duration of a drag, with the mouse_filter
+## each one had before, so they can be restored exactly.
+var _suppressed: Dictionary = {}
+
+func _suppress_buttons() -> void:
+	if _scroll == null:
+		return
+	_collect_buttons(_scroll)
+
+func _collect_buttons(node: Node) -> void:
+	for child in node.get_children():
+		if child is BaseButton:
+			var button := child as BaseButton
+			if not _suppressed.has(button):
+				_suppressed[button] = button.mouse_filter
+				# Un-press it first: a Button already holding a press would
+				# otherwise stay visually held for the rest of the gesture.
+				button.set_pressed_no_signal(false)
+				button.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_collect_buttons(child)
+
+func _restore_buttons() -> void:
+	for button in _suppressed:
+		if is_instance_valid(button):
+			button.mouse_filter = _suppressed[button]
+	_suppressed.clear()
+
 func _usable() -> bool:
 	if _scroll == null or _hit_rect_source == null:
 		return false
@@ -120,6 +147,7 @@ func _input(event: InputEvent) -> void:
 		var was_drag: bool = _exceeded
 		_active = false
 		_exceeded = false
+		_restore_buttons()
 		if was_drag:
 			if absf(_velocity) < MIN_FLICK_VELOCITY:
 				_velocity = 0.0
@@ -130,6 +158,16 @@ func _input(event: InputEvent) -> void:
 		var delta_from_start: Vector2 = pos - _start_pos
 		if not _exceeded and delta_from_start.length() > DRAG_THRESHOLD:
 			_exceeded = true
+			# Consuming the release is not enough on its own: the Buttons
+			# inside already received the press, and a Button that has been
+			# pressed will still fire when the pointer comes up. Real
+			# playtesting: "when you scroll through the incidents they are
+			# very sensitive so one opens up whilst you are scrolling even
+			# though you didn't want it to." Making them ignore the mouse
+			# for the rest of the gesture un-presses them and guarantees no
+			# row can activate from a scroll; _restore_buttons puts them
+			# back on release.
+			_suppress_buttons()
 		if _exceeded:
 			_scroll.scroll_vertical = _start_scroll - int(delta_from_start.y)
 			# Track instantaneous velocity for the flick, smoothed a little

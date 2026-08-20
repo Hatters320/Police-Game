@@ -375,7 +375,14 @@ const PEOPLE_DIR := "res://data/models/people/"
 ## real Web export screenshot, not just the arithmetic -- see the README).
 const CAR_SCALE := 0.25
 const CAR_VARIANTS := ["hatchback-sports", "taxi", "van", "delivery"]
-const CAR_COUNT := 10
+## Raised from 10 by request once traffic was finally facing and sitting
+## correctly ("the cars and people are working though which is good so we
+## can add many more of each to the scene"). Each walker is an individually
+## instanced multi-part scene rather than a shared GridMap cell -- movement
+## is the one thing the batched approach cannot do -- so this is the one
+## per-object cost in the scene that scales linearly. Frame time is checked
+## against these numbers with the back-to-back A/B method, not assumed.
+const CAR_COUNT := 34
 const CAR_SPEED := 3.2
 
 ## PEOPLE_DIR's characterMedium.fbx + Skins/ were added in an earlier round
@@ -396,7 +403,10 @@ const CAR_SPEED := 3.2
 ## person at 0.41 units tall, clearly shorter than a house and comparable
 ## to a car's own height rather than towering over both.
 const PERSON_SCALE := 0.11
-const PERSON_COUNT := 8
+## Raised from 8 alongside CAR_COUNT above, same request and same caveat.
+## Pedestrians cost more than cars (each carries its own AnimationPlayer
+## driving a skinned rig), so this stays the smaller of the two.
+const PERSON_COUNT := 26
 const PERSON_SPEED := 0.9
 ## Walk a "sidewalk" a little off the road centreline instead of straight
 ## down the middle of the carriageway cars use.
@@ -536,8 +546,16 @@ func build(world: WorldMapData) -> void:
 	_build_infill()
 	# After every street has been placed, before anything reads the walk
 	# graph: leaves no road stopping dead against a building.
+	# Order matters: drop roads laid along the river first, then prune the
+	# stubs that leaves, then clear buildings the result has stranded or
+	# left overlapped.
+	_trim_overlong_bridges()
+	# Connect first, prune only what genuinely cannot be joined: deleting
+	# every stub outright is what stranded whole rows of buildings.
+	_connect_dead_end_streets()
 	_prune_dead_end_streets()
 	_clear_buildings_overlapping_streets()
+	_clear_orphaned_buildings()
 	_build_traffic()
 	_build_pedestrians()
 
@@ -1118,6 +1136,72 @@ func _build_infill() -> void:
 ## road through whatever stopped it. Removing it leaves open ground.
 ## Iterative, because removing one stub can expose the cell behind it as a
 ## new stub; bounded so a pathological layout cannot spin here.
+## Extends dead-end streets until they join the network, rather than
+## deleting them.
+##
+## The first attempt at "no dead ends" simply pruned every stub, which
+## removed 560 street cells -- and with them the streets whole rows of
+## buildings were fronting. Those buildings did not move, but from above
+## they read as abandoned: real playtesting, twice, "many buildings are now
+## sitting in no man's land". Deleting road to satisfy a road rule while
+## leaving the buildings behind was the wrong trade.
+##
+## Extending is the better answer: a stub carries on the way it was already
+## heading until it meets another street, clearing whatever is in the way --
+## which is what actually happens when a town puts a road through. Both
+## lattices are periodic (districts on their own block size, infill on
+## INFILL_BLOCK_SIZE + 1), so a run along either axis crosses a
+## perpendicular street within a few cells and the search never needs to go
+## far. Whatever still cannot connect is left to _prune_dead_end_streets.
+func _connect_dead_end_streets() -> void:
+	for _pass in DEAD_END_CONNECT_PASSES:
+		var connected_any := false
+		for cell in _street_cells.keys():
+			var neighbours: Array = []
+			for delta in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				if _street_cells.has(cell + delta):
+					neighbours.append(delta)
+			if neighbours.size() != 1:
+				continue
+			if _extend_street(cell, -neighbours[0]):
+				connected_any = true
+		if not connected_any:
+			return
+
+## Walks outward from `cell` looking for another street to join. Returns
+## true if it connected, laying road (and clearing whatever stood in the
+## way) across the gap.
+func _extend_street(cell: Vector2i, outward: Vector2i) -> bool:
+	var path: Array = []
+	var probe: Vector2i = cell + outward
+	for _step in MAX_STREET_EXTEND:
+		if _street_cells.has(probe):
+			for path_cell in path:
+				_place_extension_road(path_cell, outward)
+			return not path.is_empty()
+		path.append(probe)
+		probe += outward
+	return false
+
+func _place_extension_road(cell: Vector2i, outward: Vector2i) -> void:
+	var grid_pos := Vector3i(cell.x, 0, cell.y)
+	# Along Z needs the same quarter-turn the district/infill lattices use
+	# for their vertical streets; along X is the mesh's own orientation.
+	if outward.x == 0:
+		var vertical: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, PI * 0.5))
+		_grid_map.set_cell_item(grid_pos, _road_straight_item, vertical)
+	else:
+		_grid_map.set_cell_item(grid_pos, _road_straight_item)
+	_occupied_cells[cell] = true
+	_street_cells[cell] = _cell_center_3d(cell)
+	_street_cell_height[cell] = ROAD_SURFACE_HEIGHT
+
+## How far a stub will reach for a connection. Both lattices repeat every
+## 4-6 cells, so a perpendicular street is within that range if one exists
+## at all; reaching further would drive road across open country.
+const MAX_STREET_EXTEND := 7
+const DEAD_END_CONNECT_PASSES := 4
+
 func _prune_dead_end_streets() -> void:
 	for _pass in DEAD_END_PRUNE_PASSES:
 		var stubs: Array = []
@@ -1171,6 +1255,108 @@ func _clear_buildings_overlapping_streets() -> void:
 		if overlaps:
 			_grid_map.set_cell_item(grid_cell, GridMap.INVALID_CELL_ITEM)
 			_occupied_cells.erase(Vector2i(grid_cell.x, grid_cell.z))
+
+## Removes buildings left stranded with no road anywhere near them.
+##
+## Pruning dead-end streets is right for the road network, but it takes
+## away the street a row of buildings was fronting, leaving them marooned
+## in open ground -- real playtesting: "many buildings are now sitting in
+## no man's land having been moved or separated from where they were
+## originally positioned." (Nothing actually moved; the road beside them
+## disappeared, which looks the same from the air.)
+##
+## The threshold is drawn from the block sizes themselves rather than
+## picked: blocks run 3-5 cells, so a building more than
+## ORPHAN_MAX_STREET_DISTANCE cells from any street cannot be part of a
+## normal block interior. Measured distribution before this pass: 678
+## buildings 1 cell from a street, 314 at 2, 181 at 3, then 71 at 4, 47 at
+## 5, 16 at 6 and 5 with no street at all -- a clear break after 3, and
+## those 139 are exactly the ones that read as stranded.
+##
+## Implemented as a breadth-first flood out from every street cell, so
+## the cost is proportional to the area covered rather than to
+## buildings x radius^2.
+func _clear_orphaned_buildings() -> void:
+	var reach: Dictionary = {}
+	var frontier: Array = []
+	for cell in _street_cells.keys():
+		reach[cell] = true
+		frontier.append(cell)
+	for _step in ORPHAN_MAX_STREET_DISTANCE:
+		var next_frontier: Array = []
+		for cell in frontier:
+			for dx in range(-1, 2):
+				for dy in range(-1, 2):
+					var probe: Vector2i = cell + Vector2i(dx, dy)
+					if not reach.has(probe):
+						reach[probe] = true
+						next_frontier.append(probe)
+		frontier = next_frontier
+
+	var road_items := {
+		_road_straight_item: true, _road_crossroad_item: true, _road_bridge_item: true,
+	}
+	for grid_cell in _grid_map.get_used_cells():
+		if road_items.has(_grid_map.get_cell_item(grid_cell)):
+			continue
+		var cell := Vector2i(grid_cell.x, grid_cell.z)
+		if not reach.has(cell):
+			_grid_map.set_cell_item(grid_cell, GridMap.INVALID_CELL_ITEM)
+			_occupied_cells.erase(cell)
+
+const ORPHAN_MAX_STREET_DISTANCE := 3
+
+## Removes streets that run *along* the river rather than across it.
+##
+## _build_infill swaps any street cell inside the water band for a
+## road-bridge tile. That is right for a road crossing the river -- the
+## band is 3.2 units wide, so a crossing is about three cells -- but a
+## street that happens to run parallel to the river stays inside the band
+## for its whole length and became one long bridge laid down the middle of
+## the water. Real playtesting: "you have bridges over water but there is
+## still road underneath the bridge that goes through the water, this
+## makes no sense." Measured: runs of six or more consecutive bridge cells
+## along a single axis, e.g. (-24,26) through (-24,31).
+##
+## The test is the run length along the road's *own* direction, taken from
+## where its street neighbours are -- not the raw run in x or z, which
+## cannot tell a three-cell crossing from a long parallel road (both have
+## a run of 1 on the other axis). Anything longer than a plausible
+## crossing is deleted outright, giving the river that ground back; the
+## dead-end pruner that runs next tidies whatever stubs are left behind.
+func _trim_overlong_bridges() -> void:
+	var doomed: Array = []
+	for cell in _street_cells.keys():
+		if _grid_map.get_cell_item(Vector3i(cell.x, 0, cell.y)) != _road_bridge_item:
+			continue
+		var along_x: bool = _street_cells.has(cell + Vector2i(1, 0)) or _street_cells.has(cell + Vector2i(-1, 0))
+		var along_z: bool = _street_cells.has(cell + Vector2i(0, 1)) or _street_cells.has(cell + Vector2i(0, -1))
+		# A crossroad in the water is ambiguous; judge it by its longest run
+		# so a parallel road through a junction is still caught.
+		var span_x: int = _bridge_run_length(cell, Vector2i(1, 0)) if along_x else 0
+		var span_z: int = _bridge_run_length(cell, Vector2i(0, 1)) if along_z else 0
+		if maxi(span_x, span_z) > MAX_BRIDGE_SPAN:
+			doomed.append(cell)
+	for cell in doomed:
+		_grid_map.set_cell_item(Vector3i(cell.x, 0, cell.y), GridMap.INVALID_CELL_ITEM)
+		_street_cells.erase(cell)
+		_street_cell_height.erase(cell)
+		_occupied_cells.erase(cell)
+
+## Length of the unbroken line of bridge tiles through `cell` along `axis`.
+func _bridge_run_length(cell: Vector2i, axis: Vector2i) -> int:
+	var run := 1
+	for direction in [axis, -axis]:
+		var probe: Vector2i = cell + direction
+		while _grid_map.get_cell_item(Vector3i(probe.x, 0, probe.y)) == _road_bridge_item:
+			run += 1
+			probe += direction
+	return run
+
+## The widest believable river crossing, in cells: RIVER_WIDTH 2.4 over a
+## RIVER_RESERVE_RADIUS 1.6 band needs about three, so four allows a
+## diagonal approach without admitting a road laid down the river.
+const MAX_BRIDGE_SPAN := 4
 
 ## Every GridMap cell within INFILL_MARGIN of the districts' own tight
 ## bounding box that isn't already occupied and doesn't fall inside any

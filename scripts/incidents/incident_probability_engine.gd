@@ -6,6 +6,33 @@ extends RefCounted
 ## randomness. Stateless -- every method is pure given its inputs, so it's
 ## trivially unit-testable and needs no instance.
 
+## Global dial on how often incidents fire, applied to the final
+## per-tick probability. 1.0 is the designed rate.
+##
+## Turned down for this stage of production at the player's request: "can
+## we just turn down the amount of incidents being reported so I can
+## properly assess each function." At the full rate a real screenshot
+## showed 36 calls active at once, which makes reviewing any single one
+## impractical.
+##
+## Chosen by measuring rather than guessing -- a headless 12-hour Westford
+## shift, counting incident_created:
+##
+##     1.0  -> 45 incidents      0.5  -> 21
+##     0.4  -> 17-20 (3 seeds)   0.35 -> 8
+##
+## 0.4 lands around one call every 40 minutes: a steady trickle to work
+## through instead of a queue, without the near-silence 0.25 produced (3
+## incidents in a whole shift, and none at all in the first 26 minutes of
+## a real play test). The relationship is steep and noisy near this point
+## because the per-tick roll saturates, hence the three-seed check.
+##
+## This scales every type and district equally, so the relative mix --
+## which type, which district, time-of-day and weather weighting -- is
+## completely unchanged; only the overall volume moves. Raise back toward
+## 1.0 for real play.
+const RATE_MULTIPLIER := 0.4
+
 ## Returns {} if no incident should be generated this tick, else
 ## {"type_id": String, "district_id": String}.
 static func roll_for_incident(
@@ -32,7 +59,7 @@ static func roll_for_incident(
 		return {}
 	# total_weight is an expected-incidents-per-hour rate; convert to a
 	# probability for this tick's dt and roll once against it.
-	var expected_this_tick: float = total_weight * (dt_minutes / 60.0)
+	var expected_this_tick: float = total_weight * (dt_minutes / 60.0) * RATE_MULTIPLIER
 	if rng.randf() > expected_this_tick:
 		return {}
 	var roll: float = rng.randf() * total_weight
