@@ -1304,7 +1304,7 @@ func _clear_orphaned_buildings() -> void:
 			_grid_map.set_cell_item(grid_cell, GridMap.INVALID_CELL_ITEM)
 			_occupied_cells.erase(cell)
 
-const ORPHAN_MAX_STREET_DISTANCE := 3
+const ORPHAN_MAX_STREET_DISTANCE := 2
 
 ## Removes streets that run *along* the river rather than across it.
 ##

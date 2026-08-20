@@ -159,6 +159,15 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 	_frame_camera_on_town()
+	# Framing depends on the viewport's real size, and on web the canvas is
+	# not necessarily at its final size yet when _ready runs -- a real play
+	# test on a wide phone came up far more zoomed out than the same build
+	# did at 1280x720, which is what a wrong aspect at framing time does
+	# (the horizontal term dominates and the size clamps near
+	# MAX_CAMERA_SIZE). Re-framing once a frame has passed, and again on any
+	# resize, makes the starting view independent of that timing.
+	call_deferred("_frame_camera_on_town")
+	get_viewport().size_changed.connect(_on_viewport_resized_for_camera)
 
 	day_night_overlay = DayNightOverlay.new()
 	add_child(day_night_overlay)
@@ -342,6 +351,18 @@ func _handle_pinch() -> void:
 ## corners through the camera's own basis rather than deriving a formula
 ## from the yaw/pitch constants: the projection already encodes them, and a
 ## formula would have to duplicate that maths and then drift from it.
+## Re-frames only while the player has not taken control of the camera --
+## yanking the view back after someone has panned or zoomed would be worse
+## than a slightly stale frame.
+func _on_viewport_resized_for_camera() -> void:
+	if _player_moved_camera:
+		return
+	_frame_camera_on_town()
+
+## Set the first time the player pans or zooms, which stops the automatic
+## framing above from overriding them.
+var _player_moved_camera: bool = false
+
 func _frame_camera_on_town() -> void:
 	var bounds: Rect2 = city_3d.town_bounds_xz()
 	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
@@ -372,11 +393,14 @@ func _frame_camera_on_town() -> void:
 	# Below 1.0 so the town slightly overflows the edges rather than
 	# sitting inside a border of empty ground -- "no dead space" means
 	# filling the view, not fitting neatly within it.
+	# Well below 1.0 so the view opens inside the town rather than looking
+	# down on all of it -- real playtesting: "I want it to be nice and
+	# close up in the town from the offset".
 	camera.size = clampf(needed * TOWN_FILL_FACTOR, MIN_CAMERA_SIZE, MAX_CAMERA_SIZE)
 
 ## How much of the framed town extent the initial view covers. Under 1.0
 ## deliberately: see _frame_camera_on_town.
-const TOWN_FILL_FACTOR := 0.82
+const TOWN_FILL_FACTOR := 0.42
 
 func _current_pinch_midpoint() -> Vector2:
 	var points: Array = _touch_points.values()
@@ -395,6 +419,7 @@ func _current_pinch_midpoint() -> Vector2:
 ## shifting the camera by the difference is what makes a pinch feel like
 ## it is scaling the map around the fingers rather than teleporting it.
 func _set_camera_size_anchored(new_size: float, screen_anchor: Vector2) -> void:
+	_player_moved_camera = true
 	var before: Vector2 = _screen_to_ground(screen_anchor)
 	camera.size = clampf(new_size, MIN_CAMERA_SIZE, MAX_CAMERA_SIZE)
 	# force_update_transform so the ray below is cast through the NEW
@@ -452,6 +477,7 @@ func _effective_zoom_2d() -> float:
 ## equal ground-plane distances along its view direction cover less
 ## vertical screen space than the same distance sideways.
 func _pan_by_screen_delta(relative: Vector2) -> void:
+	_player_moved_camera = true
 	var viewport_height: float = get_viewport().get_visible_rect().size.y
 	if viewport_height <= 0.0:
 		return

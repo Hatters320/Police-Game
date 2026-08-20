@@ -51,6 +51,21 @@ static func save(core: SimulationCore, next_shift_number: int) -> void:
 ## objects built from the world -- this only overwrites their values, it
 ## doesn't create new ones). Returns the shift number the next briefing
 ## should start at, or 1 if there's no save (a fresh game).
+## Ceiling on how many open incidents a new shift inherits.
+##
+## Unresolved incidents deliberately carry across shifts rather than being
+## discarded, but nothing previously bounded that, so a save accumulated
+## them indefinitely: a real play test opened a fresh shift holding **32
+## active calls at 17:07**, seven minutes in, and reasonably read as "the
+## game was creating what felt like more incidents than before" -- when in
+## fact almost none of them were new. A backlog that size also defeats the
+## point of turning the generation rate down for assessment.
+##
+## A real force does not inherit an unbounded queue either; older,
+## lower-priority jobs get closed off between shifts. The most urgent and
+## the oldest are the ones kept.
+const MAX_CARRIED_INCIDENTS := 6
+
 static func load_into(core: SimulationCore) -> int:
 	if not has_save():
 		return 1
@@ -77,10 +92,21 @@ static func load_into(core: SimulationCore) -> int:
 
 	core.incident_manager.active_incidents.clear()
 	var max_incident_number := 0
+	var carried: Array[Incident] = []
 	for entry_data: Dictionary in data.get("active_incidents", []):
 		var incident: Incident = Incident.from_save_dict(entry_data)
-		core.incident_manager.active_incidents[incident.id] = incident
+		carried.append(incident)
 		max_incident_number = maxi(max_incident_number, _trailing_number(incident.id))
+	# Highest priority first (1 is most urgent), then oldest, so the cap
+	# below keeps the calls a real shift would actually still be chasing.
+	carried.sort_custom(func(a: Incident, b: Incident) -> bool:
+		if a.priority != b.priority:
+			return a.priority < b.priority
+		return a.created_at_minute < b.created_at_minute)
+	for i in carried.size():
+		if i >= MAX_CARRIED_INCIDENTS:
+			break
+		core.incident_manager.active_incidents[carried[i].id] = carried[i]
 
 	core.incident_manager.history.clear()
 	for entry_data: Dictionary in data.get("history", []):
