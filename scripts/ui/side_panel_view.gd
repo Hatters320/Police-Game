@@ -187,6 +187,7 @@ func _ready() -> void:
 	# scroll screen function still moves the lists of incidents beneath
 	# it... this pop up box needs to take priority until it is closed."
 	_drag_scroll = DragScroll.attach(self, scroll, panel, _drag_scroll_allowed)
+	_drag_scroll.interaction_ended.connect(_on_drag_interaction_ended)
 	if _is_modal():
 		add_to_group(MODAL_PANEL_GROUP)
 	# Rotating a phone, or any other resize, changes how much room a docked
@@ -246,10 +247,50 @@ func close() -> void:
 func is_open() -> bool:
 	return visible
 
+## Virtual -- every subclass overrides this to rebuild its own content.
+## Declared here (rather than left undeclared) so request_refresh() below
+## can call it via polymorphic dispatch from base-class code.
+func refresh() -> void:
+	pass
+
+var _refresh_pending: bool = false
+
+## Use in place of a direct refresh() call for any rebuild triggered by a
+## background/live signal (tick_completed, incident_state_changed, etc.)
+## rather than the player's own action.
+##
+## Real playtesting: "both the incident panel and resource panel are
+## still very sensitive and open up incidents or resources when I don't
+## want to." The docked Resources/Incidents lists rebuild on roughly
+## every simulated tick (about once a real second at 1x speed), which
+## destroys and recreates every row's Button. DragScroll only neutralises
+## buttons once a drag is *confirmed* (past DRAG_THRESHOLD) -- in the
+## still-ambiguous window right after a press, a background rebuild swaps
+## in a brand new, never-suppressed Button under the player's finger,
+## which then fires as a genuine tap on release, opening whatever row
+## ended up in that position. Deferring the rebuild until the gesture
+## actually ends removes that window entirely.
+func request_refresh() -> void:
+	if _drag_scroll != null and _drag_scroll.is_pointer_down():
+		_refresh_pending = true
+		return
+	refresh()
+
+func _on_drag_interaction_ended() -> void:
+	if _refresh_pending:
+		_refresh_pending = false
+		refresh()
+
 func _show_panel() -> void:
 	visible = true
 	if _scrim:
 		_scrim.visible = true
+	# Real playtesting: opening a fresh incident right after scrolling
+	# down in a previous one landed on the same scroll position (e.g.
+	# "resources") instead of the top. Every panel should always open
+	# reading from the start of its content.
+	if _scroll:
+		_scroll.scroll_vertical = 0
 
 func clear_content() -> void:
 	for child in content.get_children():

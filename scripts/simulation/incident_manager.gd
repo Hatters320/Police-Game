@@ -10,6 +10,17 @@ signal incident_state_changed(incident_id: String, old_state: GameEnums.Incident
 signal incident_escalated(incident_id: String)
 signal incident_resolved(incident_id: String, outcome_id: String)
 
+## Range for Incident.duration_multiplier, rolled once per incident and
+## applied to its ON_SCENE/DEVELOPING handling time. Real playtesting: "a
+## unit goes to an incident and they are done within a minute whereas in
+## the real world this does not happen" -- at 1x speed a simulated minute
+## is one real second, so the configured 15-30 simulated-minute on-scene
+## totals (data/incident_type_factory.gd) were reading as barely any time
+## at all. Both ends stay above 1.0 so no incident gets shorter than
+## before, only longer and more varied call to call.
+const ON_SCENE_DURATION_MULTIPLIER_MIN := 1.5
+const ON_SCENE_DURATION_MULTIPLIER_MAX := 4.0
+
 var active_incidents: Dictionary = {} # incident_id -> Incident
 var history: Array[IncidentHistoryEntry] = []
 
@@ -144,6 +155,8 @@ func _create_incident(type_id: String, district_id: String, current_minute: int,
 	incident.known_facts = type_def.known_fact_templates.duplicate()
 	incident.unknown_facts = type_def.unknown_fact_templates.duplicate()
 
+	incident.duration_multiplier = rng.randf_range(ON_SCENE_DURATION_MULTIPLIER_MIN, ON_SCENE_DURATION_MULTIPLIER_MAX)
+
 	incident.state_machine.transition_to(GameEnums.IncidentState.REPORTED)
 	active_incidents[incident_id] = incident
 	incident_created.emit(incident_id)
@@ -185,10 +198,13 @@ func _maybe_auto_progress(incident: Incident, type_def: IncidentTypeDefinition) 
 			if incident.time_in_current_state >= type_def.state_duration(GameEnums.IncidentState.ASSESSED, 1.0):
 				incident.state_machine.transition_to(GameEnums.IncidentState.QUEUED)
 		GameEnums.IncidentState.ON_SCENE:
-			if incident.time_in_current_state >= type_def.state_duration(GameEnums.IncidentState.ON_SCENE, 15.0):
+			# duration_multiplier applies only to the on-scene handling
+			# phases (not REPORTED/ASSESSED triage) -- see its declaration
+			# on Incident for why.
+			if incident.time_in_current_state >= type_def.state_duration(GameEnums.IncidentState.ON_SCENE, 15.0) * incident.duration_multiplier:
 				incident.state_machine.transition_to(GameEnums.IncidentState.DEVELOPING)
 		GameEnums.IncidentState.DEVELOPING:
-			if incident.time_in_current_state >= type_def.state_duration(GameEnums.IncidentState.DEVELOPING, 10.0):
+			if incident.time_in_current_state >= type_def.state_duration(GameEnums.IncidentState.DEVELOPING, 10.0) * incident.duration_multiplier:
 				incident.state_machine.transition_to(GameEnums.IncidentState.RESOLVED)
 		_:
 			pass

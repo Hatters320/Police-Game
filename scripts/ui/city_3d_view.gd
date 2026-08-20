@@ -526,6 +526,12 @@ var _street_cells: Dictionary = {}
 ## walker under the bridge deck it's meant to be crossing.
 var _street_cell_height: Dictionary = {}
 
+## The real rendered ground plane's rect in the XZ plane, set once by
+## _build_ground(). _build_river() uses this to keep the river inside the
+## actual visible ground rather than just inside the (smaller) infill
+## candidate area -- see that function's doc comment.
+var _ground_bounds: Rect2 = Rect2()
+
 ## Shared AnimationLibrary resources extracted once from idle.fbx/run.fbx,
 ## reused by every pedestrian's own runtime AnimationPlayer rather than
 ## re-loading the source scene per pedestrian.
@@ -676,6 +682,12 @@ func _build_ground() -> void:
 	ground.mesh = plane
 	ground.position = Vector3(center_3d.x, 0.0, center_3d.z)
 	add_child(ground)
+
+	# Recorded so _build_river can keep the whole river -- not just its
+	# start/end corners, but the bend point too -- well inside this actual
+	# rendered plane. See the doc comment on _build_river for why the bend
+	# point specifically was the thing escaping it.
+	_ground_bounds = Rect2(Vector2(center_3d.x, center_3d.z) - size * 0.5, size)
 
 func _build_grid_map() -> void:
 	_mesh_library = MeshLibrary.new()
@@ -1488,11 +1500,22 @@ func _build_river(candidate_cells: Array, rng: RandomNumberGenerator) -> Diction
 
 ## True only if every sample point along the polyline -- and, at each
 ## sample, points offset RIVER_RESERVE_RADIUS to both sides along the
-## local perpendicular -- lands outside every district's real polygon.
+## local perpendicular -- lands outside every district's real polygon,
+## AND inside the actual rendered ground plane (_ground_bounds).
 ## Sampling the offset points too (not just the centreline) is what
 ## actually keeps the *reserved band* clear, not just the mathematical
-## line through its middle.
+## line through its middle. The ground-plane check exists because the
+## bend point _build_river() picks can be offset well beyond the
+## infill candidate area (up to 15% of the corner-to-corner distance),
+## which measured cases showed landing within a fraction of a unit of
+## the real ground edge -- reading as the river "going out of the
+## world" rather than merely close to a district.
 func _polyline_clear_of_districts(points_3d: Array) -> bool:
+	# Inset so the whole RIVER_WIDTH-wide ribbon -- not just its
+	# centreline -- stays clear of the ground plane's edge, plus a
+	# small visual buffer.
+	var ground_margin: float = RIVER_WIDTH * 0.5 + 3.0
+	var safe_bounds: Rect2 = _ground_bounds.grow(-ground_margin)
 	for i in points_3d.size() - 1:
 		var a: Vector3 = points_3d[i]
 		var b: Vector3 = points_3d[i + 1]
@@ -1506,7 +1529,11 @@ func _polyline_clear_of_districts(points_3d: Array) -> bool:
 		for s in steps + 1:
 			var t: float = float(s) / float(steps)
 			var p: Vector3 = a.lerp(b, t)
-			if _point_in_any_district(p) or _point_in_any_district(p + side) or _point_in_any_district(p - side):
+			var p_plus: Vector3 = p + side
+			var p_minus: Vector3 = p - side
+			if _point_in_any_district(p) or _point_in_any_district(p_plus) or _point_in_any_district(p_minus):
+				return false
+			if not safe_bounds.has_point(Vector2(p.x, p.z)) or not safe_bounds.has_point(Vector2(p_plus.x, p_plus.z)) or not safe_bounds.has_point(Vector2(p_minus.x, p_minus.z)):
 				return false
 	return true
 

@@ -1440,6 +1440,95 @@ crime... major incidents should be rare." No incident-rate code changes
 were needed; the earlier baseline-weighting fix already had this right,
 and this confirms it holds up at full-town scale under sustained play.
 
+**Six fixes from one round of real playtesting on the live build.** All
+from a single player message after a phone session, quoted piece by
+piece below because each pointed at a different, specific root cause
+rather than one shared bug.
+
+*"The water river in this still does not look right, it almost goes out
+of the world side as well?"* `_build_river()` picks a bend point offset
+perpendicular to the straight line between two river ends, by up to 15%
+of that line's length -- and nothing checked the bend point against the
+actual rendered ground plane, only against district polygons (so the
+river wouldn't cut through a park or estate, but could still walk off
+the edge of the world). Measured directly against the real generated
+town: the river's vertices ran from x=-34.69 to the ground plane's own
+edge at x=-35.5 -- 0.82 units of margin on a town that's roughly 100
+units across, i.e. visibly hugging the boundary, matching the
+screenshot. Fixed by extending the same per-sample check
+`_build_river()` already used for district avoidance to also require
+every sampled point (centreline plus both reserved-band edges) to fall
+inside the ground plane inset by a safety margin. Reverified with the
+same measurement script: the river's vertices now sit well clear of the
+boundary on the real generated town.
+
+*"If I have scrolled down to resources... the very next incident that I
+click on opens at the same scrolled point rather than the start
+again."* Every docked and pop-up panel shares one `ScrollContainer`
+plumbing (`SidePanelView`), and nothing reset its scroll position on
+open -- so whatever position the previous panel was left at just carried
+forward into the next one's fresh content. Fixed with one line in
+`_show_panel()`. Verified against the real engine: drag-scrolled a
+unit's detail panel down two officers' worth, closed it, opened a
+different unit, and it opened reading from the top.
+
+*"There needs to be a few lines of what the incident is to make it seem
+more real."* The content already existed -- each incident type's
+`known_fact_templates` render as a "KNOWN" bullet list -- it was just
+positioned fourth in the pop-up's layout, after the header, the dispatch
+suggestions, and the assigned/available unit lists, so it read as
+buried admin rather than the story. Moved it to render immediately after
+the header. Verified against the real engine: opening a live domestic
+incident now shows "KNOWN -- Neighbour reports a loud argument" directly
+under the priority/type/location line, before any dispatch control.
+
+*"Both the incident panel and resource panel are still very sensitive
+and open up incidents or resources when I don't want to."* The docked
+Resources/Incidents lists rebuild their rows on every simulated tick
+(roughly once a real second at 1x) to stay live -- and `DragScroll` only
+neutralises row Buttons once a drag is *confirmed* past its 5px
+threshold. In the still-ambiguous instant right after a press, a
+background rebuild can swap in a brand-new, never-suppressed Button
+under the player's finger, which then fires as a genuine tap on release
+-- opening whichever row ended up in that screen position, not
+necessarily the one the player pressed. Fixed by adding an
+`interaction_ended` signal to `DragScroll` and a `request_refresh()` on
+`SidePanelView` that defers any background-triggered rebuild until the
+current gesture actually ends, rather than rebuilding mid-touch.
+
+*"There needs to be random time lengths built into incidents... a unit
+goes to an incident and they are done within a minute."* True by
+construction: `GameClock` runs one simulated minute per one real second
+at 1x speed, and every incident type's on-scene handling time was a
+fixed value (10-20 simulated minutes ON_SCENE, 5-10 DEVELOPING) with no
+variance -- 15-30 real seconds, every single time, for a given type.
+Added `Incident.duration_multiplier`, rolled once per incident between
+1.5x and 4x and applied only to the ON_SCENE/DEVELOPING phases (not the
+REPORTED/ASSESSED triage stages, which weren't the complaint), saved and
+loaded with the incident so it survives a shift handover. Both ends of
+the range stay above 1x, so nothing gets shorter than before, only
+longer and more varied call to call. Verified with the project's headless
+shift-debug harness: two shoplifting calls in the same run took 60 and 46
+simulated minutes end to end respectively (including travel), against a
+fixed ~15-minute total before this change.
+
+*"When you click on a resource... it should show where they are, what
+job they are at, their skills, their fatigue metrics."* The unit detail
+panel showed a generic status word ("On patrol") and each officer's
+experience/fatigue/morale, but never their live position, what they were
+actually assigned to, or their skills -- despite all of that data already
+existing (`PoliceUnit.current_position`/`current_incident_id`,
+`Officer.skills`, fully populated per officer in
+`data/officer_factory.gd`) and simply never being surfaced. Added a
+district lookup for location (same point-in-polygon approach the
+roster list already used), a job line that names the specific incident
+or patrol point rather than repeating the status word, and a skills line
+covering all five tracked skills per officer. Verified against the real
+engine: opening a unit's panel now reads "Available at station /
+Location: Town Centre / PC Bennett -- Constable / Experience: Low
+Driver: Yes / Fatigue: 7 / Morale: 80 / Skills -- Comms: Low, Response:
+Med...".
+
 Not built: real art assets. Everything drawn above is still flat-colour
 primitives, just arranged more deliberately toward the spec's
 "SimCity-style" target (section 2) than the original placeholder shapes

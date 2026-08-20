@@ -38,6 +38,12 @@ const FRICTION := 6.0
 const MIN_FLICK_VELOCITY := 40.0
 const MAX_FLICK_VELOCITY := 3000.0
 
+## Emitted whenever a press-and-release gesture on the hit rect finishes,
+## whether or not it turned into a drag. SidePanelView uses this to defer
+## a background-triggered row rebuild until the player's finger is
+## actually off the panel -- see request_refresh() there for why.
+signal interaction_ended
+
 var _scroll: ScrollContainer
 var _hit_rect_source: Control
 ## Optional gate: return false to ignore input entirely this frame (used
@@ -96,6 +102,13 @@ func _restore_buttons() -> void:
 			button.mouse_filter = _suppressed[button]
 	_suppressed.clear()
 
+## True while a press is currently down on the hit rect, whether or not
+## it has turned into a confirmed drag yet. SidePanelView.request_refresh()
+## uses this to tell an ambiguous tap-in-progress from a genuinely idle
+## panel.
+func is_pointer_down() -> bool:
+	return _active
+
 func _usable() -> bool:
 	if _scroll == null or _hit_rect_source == null:
 		return false
@@ -152,6 +165,7 @@ func _input(event: InputEvent) -> void:
 			if absf(_velocity) < MIN_FLICK_VELOCITY:
 				_velocity = 0.0
 			get_viewport().set_input_as_handled()
+		interaction_ended.emit()
 		return
 
 	if moved_event and _active:

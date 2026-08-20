@@ -57,7 +57,7 @@ func wire(map_view: MapView, unit_panel: UnitPanelView) -> void:
 
 func _refresh_if_open() -> void:
 	if is_open():
-		refresh()
+		request_refresh()
 
 func open() -> void:
 	if _map_view:

@@ -42,6 +42,10 @@ func refresh() -> void:
 	add_title(unit.callsign)
 	add_close_button()
 	add_dim_line(_status_text(unit))
+	add_dim_line("Location: %s" % _location_text(unit))
+	var job_text: String = _job_text(unit)
+	if job_text != "":
+		add_dim_line(job_text)
 	add_divider()
 
 	for officer_id in unit.officer_ids:
@@ -65,6 +69,7 @@ func _add_officer_block(officer: Officer) -> void:
 	fatigue_label.modulate = Color(0.9, 0.5, 0.25) if officer.is_elevated_fatigue() else Color(0.7, 0.7, 0.7)
 	content.add_child(fatigue_label)
 	add_dim_line("Morale: %d" % int(officer.morale))
+	add_dim_line(_skills_text(officer))
 
 	var spacer := Control.new()
 	spacer.custom_minimum_size = Vector2(0, 4)
@@ -116,6 +121,65 @@ func _status_text(unit: PoliceUnit) -> String:
 		GameEnums.UnitStatus.ON_SCENE: return "On scene"
 		GameEnums.UnitStatus.ON_BREAK: return "On break"
 		_: return "Unavailable"
+
+## Which district the unit currently sits in, read from its real live
+## position -- same point-in-polygon approach as ResourcesPanelView's
+## roster list, duplicated here rather than shared since each panel's
+## exact wording differs slightly. Real playtesting asked the unit panel
+## to show "where they are, what job they are at, their skills, their
+## fatigue metrics" -- this is the "where".
+func _location_text(unit: PoliceUnit) -> String:
+	var world: WorldMapData = Simulation.core.world
+	for district: DistrictDefinition in world.districts:
+		if Geometry2D.is_point_in_polygon(unit.current_position, district.boundary):
+			return district.display_name
+	var closest_name: String = "en route"
+	var closest_dist: float = INF
+	for district: DistrictDefinition in world.districts:
+		for point in district.boundary:
+			var dist: float = point.distance_to(unit.current_position)
+			if dist < closest_dist:
+				closest_dist = dist
+				closest_name = district.display_name
+	return closest_name
+
+## The "what job they are at" half of the same request -- names the
+## specific incident or patrol point rather than just repeating the
+## generic status line above.
+func _job_text(unit: PoliceUnit) -> String:
+	match unit.status:
+		GameEnums.UnitStatus.TRAVELLING, GameEnums.UnitStatus.ON_SCENE:
+			if unit.current_incident_id != "":
+				var incident: Incident = Simulation.core.incident_manager.get_incident(unit.current_incident_id)
+				if incident:
+					var type_def: IncidentTypeDefinition = Simulation.core.incident_manager.get_type_definition(incident.type_id)
+					var location: LocationDefinition = Simulation.core.world.get_location(incident.location_id)
+					var type_name: String = type_def.display_name if type_def else incident.type_id
+					var location_name: String = location.display_name if location else ""
+					var verb: String = "Travelling to" if unit.status == GameEnums.UnitStatus.TRAVELLING else "Dealing with"
+					return "%s: %s%s" % [verb, type_name, (" at " + location_name) if location_name != "" else ""]
+			return "Travelling"
+		GameEnums.UnitStatus.PATROL:
+			if unit.patrol_location_id != "":
+				var location: LocationDefinition = Simulation.core.world.get_location(unit.patrol_location_id)
+				if location:
+					return "Patrolling near %s" % location.display_name
+			return ""
+		_:
+			return ""
+
+func _skills_text(officer: Officer) -> String:
+	return "Skills -- Comms: %s  Response: %s  Investigation: %s  Community: %s  Driving: %s" % [
+		_skill_text(officer.skill_level("communication")), _skill_text(officer.skill_level("response")),
+		_skill_text(officer.skill_level("investigation")), _skill_text(officer.skill_level("community")),
+		_skill_text(officer.skill_level("driving")),
+	]
+
+func _skill_text(level: GameEnums.SkillLevel) -> String:
+	match level:
+		GameEnums.SkillLevel.LOW: return "Low"
+		GameEnums.SkillLevel.HIGH: return "High"
+		_: return "Med"
 
 func _rank_text(rank: GameEnums.OfficerRank) -> String:
 	return "Sergeant" if rank == GameEnums.OfficerRank.SERGEANT else "Constable"

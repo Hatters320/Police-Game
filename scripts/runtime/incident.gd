@@ -32,6 +32,15 @@ var first_on_scene_minute: int = -1
 var resolved_at_minute: int = -1
 var outcome_id: String = ""
 
+## Rolled once at creation (IncidentManager._create_incident) and applied
+## to the ON_SCENE/DEVELOPING handling durations. Real playtesting: "there
+## needs to be random time lengths built into incidents for dealing with
+## them as at the moment a unit goes to an incident and they are done
+## within a minute." A fixed multiplier per incident (rather than
+## re-rolling every tick) keeps a given incident's pace internally
+## consistent while still varying call to call.
+var duration_multiplier: float = 1.0
+
 var state_machine: IncidentStateMachine
 
 func _init(p_id: String, p_type_id: String, p_district_id: String, p_location_id: String, p_created_at_minute: int) -> void:
@@ -90,6 +99,7 @@ func to_save_dict() -> Dictionary:
 		"assigned_unit_ids": assigned_unit_ids, "command_intent": int(command_intent),
 		"created_at_minute": created_at_minute, "first_on_scene_minute": first_on_scene_minute,
 		"resolved_at_minute": resolved_at_minute, "outcome_id": outcome_id,
+		"duration_multiplier": duration_multiplier,
 	}
 
 static func from_save_dict(data: Dictionary) -> Incident:
@@ -113,6 +123,8 @@ static func from_save_dict(data: Dictionary) -> Incident:
 	incident.first_on_scene_minute = int(data["first_on_scene_minute"])
 	incident.resolved_at_minute = int(data["resolved_at_minute"])
 	incident.outcome_id = String(data["outcome_id"])
+	# Defaulted for saves written before this field existed.
+	incident.duration_multiplier = float(data.get("duration_multiplier", 1.0))
 	return incident
 
 static func _to_string_array(value) -> Array[String]:

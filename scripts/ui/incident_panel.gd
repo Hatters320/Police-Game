@@ -67,13 +67,15 @@ func refresh() -> void:
 	# "the top of the pop up should present detail about the incident and
 	# then the game should present the user with their deployment
 	# options... and the game should have helpful suggestions to the user."
-	# So: what is it, what should I do, then how to do it, then the
+	# So: what is it (header, then the known/unknown facts narrative --
+	# "there needs to be a few lines of what the incident is to make seem
+	# more real"), what should I do, then how to do it, then the
 	# secondary tools.
 	_add_header(type_def, incident, location)
+	_add_facts_block(incident)
 	_add_suggestions_block(incident, location)
 	_add_assigned_units_block(incident)
 	_add_available_units_block(incident)
-	_add_facts_block(incident)
 	_add_intent_block(incident)
 	_add_specialist_block(incident)
 	_add_neighbourhood_block(incident)
