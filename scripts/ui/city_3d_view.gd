@@ -534,6 +534,10 @@ func build(world: WorldMapData) -> void:
 	_build_named_buildings()
 	_build_district_blocks()
 	_build_infill()
+	# After every street has been placed, before anything reads the walk
+	# graph: leaves no road stopping dead against a building.
+	_prune_dead_end_streets()
+	_clear_buildings_overlapping_streets()
 	_build_traffic()
 	_build_pedestrians()
 
@@ -674,7 +678,82 @@ func _register_library_item(path: String) -> int:
 	_mesh_library.create_item(id)
 	_mesh_library.set_item_mesh(id, mesh)
 	_library_item_by_path[path] = id
+	_record_item_footprint(id, mesh)
 	return id
+
+## How many grid cells an item's mesh actually covers on the ground.
+##
+## This is not a formality: of the 113 building models in the kit, **69
+## are wider than one 1.0 grid cell**, the largest at 2.48 units. Placed
+## one-per-cell they physically spill into their neighbours -- including
+## road cells, which is what real playtesting reported as "some buildings
+## overlap roads". Recording the real footprint at registration lets
+## placement below reserve the cells a building will actually cover
+## instead of assuming every model is a 1x1.
+func _record_item_footprint(id: int, mesh: Mesh) -> void:
+	if mesh == null:
+		_item_footprint[id] = Vector2i.ONE
+		return
+	var box: AABB = mesh.get_aabb()
+	_item_footprint[id] = Vector2i(
+		maxi(1, ceili(box.size.x / GRID_CELL_SIZE - FOOTPRINT_TOLERANCE)),
+		maxi(1, ceili(box.size.z / GRID_CELL_SIZE - FOOTPRINT_TOLERANCE)),
+	)
+
+## Slack before a mesh counts as needing another cell -- a model measuring
+## a hair over 1.0 (kit models are modelled to the grid but not to the
+## micron) should still count as 1x1 rather than reserving a whole extra
+## cell it barely touches.
+const FOOTPRINT_TOLERANCE := 0.08
+
+## Item id -> footprint in cells, from _record_item_footprint above.
+var _item_footprint: Dictionary = {}
+
+## True when every cell an item of this footprint would cover, centred on
+## `cell`, is free ground -- nothing already placed, no street, no water
+## or park reservation. Footprints extend right/down from the anchor cell,
+## matching how GridMap lays an item out from its own origin.
+func _footprint_is_clear(cell: Vector2i, footprint: Vector2i, extra_blocked: Dictionary = {}, street_period: int = 0) -> bool:
+	for dx in footprint.x:
+		for dy in footprint.y:
+			var probe := Vector2i(cell.x + dx, cell.y + dy)
+			if _occupied_cells.has(probe) or _street_cells.has(probe) or extra_blocked.has(probe):
+				return false
+			# Streets are laid on a fixed period, and a cell later in the
+			# same pass has not been placed yet -- so checking only
+			# _street_cells would let a building reserve ground that is
+			# about to become road. That cell would then be skipped as
+			# "occupied", punching holes in the lattice: a first version of
+			# this collapsed the network from 1760 street cells to 284 and
+			# left the dead-end pruner cascading through the wreckage.
+			# The period is a pure function of the coordinate, so
+			# prospective streets can be honoured before they exist.
+			if street_period > 0 and (posmod(probe.x, street_period) == 0 or posmod(probe.y, street_period) == 0):
+				return false
+	return true
+
+## Marks every cell an item covers as occupied, so nothing else -- another
+## building, a decoration, or a later street pass -- lands inside it.
+func _reserve_footprint(cell: Vector2i, footprint: Vector2i) -> void:
+	for dx in footprint.x:
+		for dy in footprint.y:
+			_occupied_cells[Vector2i(cell.x + dx, cell.y + dy)] = true
+
+## Picks a variant from `item_ids` that actually fits the space around
+## `cell`, preferring the caller's random choice but falling back to
+## progressively smaller footprints rather than forcing an oversized model
+## into a gap it will overhang. Returns -1 when nothing fits, in which case
+## the caller should leave the cell as open ground.
+func _fit_building_item(cell: Vector2i, item_ids: Array, rng: RandomNumberGenerator, extra_blocked: Dictionary = {}, street_period: int = 0) -> int:
+	if item_ids.is_empty():
+		return -1
+	var start: int = rng.randi() % item_ids.size()
+	for offset in item_ids.size():
+		var candidate: int = item_ids[(start + offset) % item_ids.size()]
+		var footprint: Vector2i = _item_footprint.get(candidate, Vector2i.ONE)
+		if _footprint_is_clear(cell, footprint, extra_blocked, street_period):
+			return candidate
+	return -1
 
 ## Same idea as _register_library_item, but for a tinted variant: a
 ## per-(path, tint) cached MeshLibrary entry sharing the base mesh's
@@ -705,6 +784,7 @@ func _register_tinted_library_item(path: String, tint: Color) -> int:
 	_mesh_library.create_item(id)
 	_mesh_library.set_item_mesh(id, tinted_mesh)
 	_library_item_by_path[key] = id
+	_record_item_footprint(id, tinted_mesh)
 	return id
 
 ## Per-instance tint for an individually-instanced building (named
@@ -724,6 +804,30 @@ func _apply_tint(inst: Node3D, tint: Color) -> void:
 
 func _world_to_cell(pos_3d: Vector3) -> Vector2i:
 	return Vector2i(floori(pos_3d.x / GRID_CELL_SIZE), floori(pos_3d.z / GRID_CELL_SIZE))
+
+## The real ground-plane extent of everything actually placed, in 3D scene
+## units (XZ). Used by main.gd to frame the camera on the town at startup
+## rather than on the world origin at a hard-coded zoom.
+##
+## This is worth computing rather than assuming, because the town is
+## neither centred on the origin nor square: the generated layout measures
+## roughly 69 x 77 units centred near (6, 11), so a camera pointed at (0,0)
+## at a fixed size leaves visible dead space on two sides -- real
+## playtesting: "the screen should be zoomed so that there is no dead
+## space on their viewing Panel."
+func town_bounds_xz() -> Rect2:
+	if _grid_map == null:
+		return Rect2()
+	var cells: Array = _grid_map.get_used_cells()
+	if cells.is_empty():
+		return Rect2()
+	var min_p := Vector2(INF, INF)
+	var max_p := Vector2(-INF, -INF)
+	for cell in cells:
+		var p: Vector3 = _grid_map.map_to_local(cell)
+		min_p = Vector2(minf(min_p.x, p.x), minf(min_p.y, p.z))
+		max_p = Vector2(maxf(max_p.x, p.x), maxf(max_p.y, p.z))
+	return Rect2(min_p, max_p - min_p)
 
 func _cell_center_3d(cell: Vector2i) -> Vector3:
 	return Vector3((cell.x + 0.5) * GRID_CELL_SIZE, 0.0, (cell.y + 0.5) * GRID_CELL_SIZE)
@@ -854,10 +958,15 @@ func _build_district_blocks() -> void:
 						_grid_map.set_cell_item(grid_pos, decor_item, decor_facing)
 						_occupied_cells[cell] = true
 				else:
-					var item_id: int = item_ids[rng.randi() % item_ids.size()]
-					var facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (rng.randi() % 4) * PI * 0.5))
-					_grid_map.set_cell_item(grid_pos, item_id, facing)
-					_occupied_cells[cell] = true
+					# Only place a building whose real footprint fits the
+					# free cells here -- 69 of the 113 kit models are wider
+					# than one cell, so placing blind is what put building
+					# geometry over the adjacent roads.
+					var item_id: int = _fit_building_item(cell, item_ids, rng, {}, street_period)
+					if item_id >= 0:
+						var facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (rng.randi() % 4) * PI * 0.5))
+						_grid_map.set_cell_item(grid_pos, item_id, facing)
+						_reserve_footprint(cell, _item_footprint.get(item_id, Vector2i.ONE))
 
 ## Which decoration pool an open cell draws from -- greenery everywhere by
 ## default, mini-forest's fence added for RESIDENTIAL/URBAN gardens,
@@ -982,10 +1091,86 @@ func _build_infill() -> void:
 						ids.append(_register_library_item(landmark_path + ".glb"))
 					item_ids_by_land_use[land_use] = ids
 				var item_ids: Array = item_ids_by_land_use[land_use]
-				var item_id: int = item_ids[rng.randi() % item_ids.size()]
-				var facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (rng.randi() % 4) * PI * 0.5))
-				_grid_map.set_cell_item(grid_pos, item_id, facing)
-				_occupied_cells[cell] = true
+				# Same footprint check as the district blocks: a model that
+				# would overhang onto a neighbouring cell (or a road) is
+				# passed over in favour of one that fits, and the cells it
+				# really covers are reserved. water_cells/park_cells are
+				# passed as additionally blocked so a building can never
+				# grow out over the river or into a park.
+				var item_id: int = _fit_building_item(cell, item_ids, rng, water_cells, INFILL_BLOCK_SIZE + 1)
+				if item_id >= 0:
+					var facing: int = _grid_map.get_orthogonal_index_from_basis(Basis(Vector3.UP, (rng.randi() % 4) * PI * 0.5))
+					_grid_map.set_cell_item(grid_pos, item_id, facing)
+					_reserve_footprint(cell, _item_footprint.get(item_id, Vector2i.ONE))
+
+## Removes street stubs -- cells with one or no street neighbour -- until
+## none are left.
+##
+## The infill lattice is dead-end-free by construction, but each district's
+## own lattice is clipped to that district's real polygon, so a street that
+## reaches the boundary simply stops. Measured before this pass: 165 of
+## 1760 street cells were dead ends, and 135 of those ran directly into a
+## building -- exactly the "some roads lead straight into buildings" real
+## playtesting reported.
+##
+## Pruning rather than extending: a stub exists precisely because there was
+## nowhere for it to go (it ran out of district), so growing it would push
+## road through whatever stopped it. Removing it leaves open ground.
+## Iterative, because removing one stub can expose the cell behind it as a
+## new stub; bounded so a pathological layout cannot spin here.
+func _prune_dead_end_streets() -> void:
+	for _pass in DEAD_END_PRUNE_PASSES:
+		var stubs: Array = []
+		for cell in _street_cells.keys():
+			var neighbours := 0
+			for delta in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				if _street_cells.has(cell + delta):
+					neighbours += 1
+			if neighbours <= 1:
+				stubs.append(cell)
+		if stubs.is_empty():
+			return
+		for cell in stubs:
+			_grid_map.set_cell_item(Vector3i(cell.x, 0, cell.y), GridMap.INVALID_CELL_ITEM)
+			_street_cells.erase(cell)
+			_street_cell_height.erase(cell)
+			_occupied_cells.erase(cell)
+
+const DEAD_END_PRUNE_PASSES := 12
+
+## Final guarantee: removes any placed item whose real footprint covers a
+## street cell.
+##
+## Placement already refuses to put a building where it would overhang
+## (see _fit_building_item), but that check can only account for streets
+## that already exist or are predictable from the street period in force
+## at that moment. A handful survive the ordering between the named-
+## building pass, six per-district passes with different street periods,
+## and the infill pass -- measured at 7 out of ~2500 placed cells. Rather
+## than reason about every interleaving, this sweeps once at the end, when
+## every street is final, so the property the player actually sees ("no
+## building sits over a road") holds by construction rather than by
+## argument.
+func _clear_buildings_overlapping_streets() -> void:
+	var road_items := {
+		_road_straight_item: true, _road_crossroad_item: true, _road_bridge_item: true,
+	}
+	for grid_cell in _grid_map.get_used_cells():
+		var item: int = _grid_map.get_cell_item(grid_cell)
+		if road_items.has(item):
+			continue
+		var footprint: Vector2i = _item_footprint.get(item, Vector2i.ONE)
+		var overlaps := false
+		for dx in footprint.x:
+			for dy in footprint.y:
+				if _street_cells.has(Vector2i(grid_cell.x + dx, grid_cell.z + dy)):
+					overlaps = true
+					break
+			if overlaps:
+				break
+		if overlaps:
+			_grid_map.set_cell_item(grid_cell, GridMap.INVALID_CELL_ITEM)
+			_occupied_cells.erase(Vector2i(grid_cell.x, grid_cell.z))
 
 ## Every GridMap cell within INFILL_MARGIN of the districts' own tight
 ## bounding box that isn't already occupied and doesn't fall inside any

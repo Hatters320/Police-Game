@@ -94,6 +94,15 @@ signal feed_height_changed
 func feed_total_height() -> float:
 	return FEED_HEIGHTS[_feed_height_index] + 32.0
 
+## The comms strip stops accepting drags while a modal detail panel is
+## open, so an incident pop-up owns the gesture until it is closed.
+func _feed_scroll_allowed() -> bool:
+	for node in get_tree().get_nodes_in_group(SidePanelView.MODAL_PANEL_GROUP):
+		var panel_view := node as SidePanelView
+		if panel_view != null and panel_view.visible:
+			return false
+	return true
+
 func _ready() -> void:
 	layer = 2 # above DayNightOverlay's tint (layer 1), below side panels (layer 3)
 
@@ -532,6 +541,14 @@ func _build_feed() -> void:
 	_feed_list.add_theme_constant_override("separation", 1)
 	_feed_scroll.add_child(_feed_list)
 
+	# Drag anywhere on the comms strip to scroll it, with flick inertia --
+	# real playtesting: "the scroll function in the comms panel is still
+	# very glitchy - it's hard to move even when made big." The feed lines
+	# are RichTextLabels with clickable [url] spans, so as with the side
+	# panels a drag would otherwise be swallowed before reaching the
+	# ScrollContainer. Gated so a modal detail panel takes priority.
+	DragScroll.attach(self, _feed_scroll, _feed_panel, _feed_scroll_allowed)
+
 	# Sets the initial (compact) height through the same path a tap uses,
 	# so there is one place that knows how the strip is laid out.
 	_apply_feed_height()
@@ -568,7 +585,15 @@ func _append_feed(text: String, color: Color = Color.WHITE, incident_id: String 
 		speaker = text.substr(0, split_at + 1)
 		message = text.substr(split_at + 2)
 
-	var body := ""
+	# Shift clock stamp, by request: "I'd like timings of the comms to be
+	# added so that the user knows when the comms message was said." Uses
+	# the simulation's own shift time (not wall-clock), since that is the
+	# clock the player is reading everywhere else in the HUD, and is dimmed
+	# so it frames the line rather than competing with it.
+	var body := "[color=#%s]%s[/color]  " % [
+		UiTheme.TEXT_DIM.to_html(false),
+		Simulation.core.shift_manager.shift_state.time_of_day_string(),
+	]
 	if speaker != "":
 		body += "[color=#%s][b]%s[/b][/color] " % [UiTheme.TEXT_ACCENT.to_html(false), speaker]
 	body += "[color=#%s]%s[/color]" % [color.to_html(false), message]

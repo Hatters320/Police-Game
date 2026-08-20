@@ -13,24 +13,30 @@ var _current_incident_id: String = ""
 
 ## Draws above the always-docked Resources/Incidents panels, which stay
 ## visible underneath rather than closing whenever this opens.
+## Takes over the screen while open -- see SidePanelView._is_modal.
+func _is_modal() -> bool:
+	return true
+
 func _panel_layer() -> int:
 	return 4
 
-## A real player screenshot found this "way too big... needs to just
-## overlay the incident box" once every other panel had already shrunk --
-## this was the one panel whose own content (as opposed to the shared
-## SidePanelView helpers) still used the project's 22px default font and
-## 48-52px buttons throughout. Narrower and shorter than the shared
-## detail-panel default too (SidePanelView's own 240x200), landing it
-## close to where IncidentsListPanelView sits rather than spanning most
-## of the screen.
+## Wider and taller than the other detail panels: since real playtesting
+## asked for this pop-up to "take priority until it is closed", it is now
+## modal (see SidePanelView's scrim) and is the screen the player actually
+## makes their decision on, so it gets room to lay that decision out
+## rather than being a cramped overlay.
 func _panel_width() -> float:
-	return 220.0
+	return 250.0
 
 func _panel_height() -> float:
-	return 190.0
+	return minf(268.0, maxf(150.0, get_viewport().get_visible_rect().size.y - PANEL_TOP_Y - 30.0))
 
-const ACTION_BUTTON_SIZE := Vector2(0, 32)
+## Centred rather than docked to one side -- a modal decision surface
+## reads better in the middle than clinging to an edge.
+func _panel_anchor() -> int:
+	return Control.PRESET_CENTER
+
+const ACTION_BUTTON_SIZE := Vector2(0, 26)
 
 func open(incident_id: String) -> void:
 	_current_incident_id = incident_id
@@ -57,30 +63,92 @@ func refresh() -> void:
 	var type_def: IncidentTypeDefinition = _type_def_for(incident.type_id)
 	var location: LocationDefinition = Simulation.core.world.get_location(incident.location_id)
 
+	# Order matters and is the point of this layout, per real playtesting:
+	# "the top of the pop up should present detail about the incident and
+	# then the game should present the user with their deployment
+	# options... and the game should have helpful suggestions to the user."
+	# So: what is it, what should I do, then how to do it, then the
+	# secondary tools.
 	_add_header(type_def, incident, location)
-	add_close_button()
-	_add_priority_block(incident)
-	_add_facts_block(incident)
-	_add_intent_block(incident)
+	_add_suggestions_block(incident, location)
 	_add_assigned_units_block(incident)
 	_add_available_units_block(incident)
+	_add_facts_block(incident)
+	_add_intent_block(incident)
 	_add_specialist_block(incident)
 	_add_neighbourhood_block(incident)
+	add_divider()
+	add_close_button()
 
 func _add_header(type_def: IncidentTypeDefinition, incident: Incident, location: LocationDefinition) -> void:
+	add_badge(
+		"P%d  %s" % [incident.priority, _priority_text(incident.priority)],
+		MapView.PRIORITY_COLORS.get(incident.priority, Color.WHITE),
+	)
 	add_title(type_def.display_name if type_def else incident.type_id)
 	add_line(location.display_name if location else incident.location_id)
-	add_dim_line("Reported: %s" % TimeFormat.clock(incident.created_at_minute))
 
-	var state_label := Label.new()
-	state_label.text = _state_text(incident.state)
-	state_label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
+	var state_text: String = "%s  ·  reported %s" % [
+		_state_text(incident.state), TimeFormat.clock(incident.created_at_minute),
+	]
 	if incident.escalation_level > 0:
-		state_label.text += "  (escalated x%d)" % incident.escalation_level
-		state_label.modulate = Color(0.9, 0.55, 0.25)
-	else:
-		state_label.modulate = Color(0.7, 0.7, 0.7)
+		state_text += "  ·  escalated x%d" % incident.escalation_level
+	var state_label := Label.new()
+	state_label.text = state_text
+	state_label.add_theme_font_size_override("font_size", SMALL_FONT_SIZE)
+	state_label.add_theme_color_override("font_color", Color(0.9, 0.55, 0.25) if incident.escalation_level > 0 else UiTheme.TEXT_DIM)
+	state_label.autowrap_mode = TextServer.AUTOWRAP_WORD
 	content.add_child(state_label)
+	add_dim_line("Threat %d   Harm %d   Vulnerability %d" % [int(incident.threat), int(incident.harm), int(incident.vulnerability)])
+
+## Concrete next moves, computed from the same conditions the simulation
+## actually scores on -- real playtesting asked for "helpful suggestions
+## to the user", and the honest version of that is surfacing the things
+## the outcome engine already weighs (supervision, a suited specialist,
+## unknown facts) plus the obvious dispatch call, rather than generic
+## advice. Deliberately capped: a wall of hints is as unhelpful as none.
+func _add_suggestions_block(incident: Incident, location: LocationDefinition) -> void:
+	add_divider()
+	add_mini_header("SUGGESTED")
+
+	var shown := 0
+	if incident.assigned_unit_ids.is_empty():
+		var nearest_id: String = _nearest_available_unit_id(incident, location)
+		if nearest_id != "":
+			var nearest: PoliceUnit = Simulation.core.resource_manager.get_unit(nearest_id)
+			if nearest:
+				var urgent: bool = incident.priority <= 2
+				add_advice("Send %s -- nearest available unit." % nearest.callsign, urgent)
+				shown += 1
+		else:
+			add_advice("No units free. Consider recalling one from a lower-priority job.", true)
+			shown += 1
+	elif incident.state == GameEnums.IncidentState.ON_SCENE or incident.state == GameEnums.IncidentState.DEVELOPING:
+		add_advice("Unit on scene. Let it develop, or send support if it escalates.")
+		shown += 1
+
+	var officers: Array[Officer] = _assigned_officers(incident)
+	if IncidentOutcomeEngine.needs_supervisor(incident, officers) and not IncidentOutcomeEngine.has_supervisor(officers):
+		add_advice("Send a sergeant -- this one warrants supervision.", true)
+		shown += 1
+
+	if shown < MAX_SUGGESTIONS and not incident.unknown_facts.is_empty():
+		add_advice("Request information -- %d detail(s) still unknown." % incident.unknown_facts.size())
+		shown += 1
+
+	if shown < MAX_SUGGESTIONS:
+		var type_def: IncidentTypeDefinition = _type_def_for(incident.type_id)
+		var recommended: int = type_def.recommended_specialist if type_def else -1
+		if recommended >= 0:
+			var specialist: SpecialistUnit = Simulation.core.specialist_manager.unit_for_type(recommended)
+			if specialist and specialist.status == GameEnums.SpecialistStatus.AVAILABLE:
+				add_advice("Request %s -- suited to this incident." % specialist.display_name)
+				shown += 1
+
+	if shown == 0:
+		add_dim_line("Nothing pressing -- this one is in hand.")
+
+const MAX_SUGGESTIONS := 3
 
 func _state_text(state: GameEnums.IncidentState) -> String:
 	match state:
@@ -94,15 +162,6 @@ func _state_text(state: GameEnums.IncidentState) -> String:
 		GameEnums.IncidentState.DEVELOPING: return "Developing"
 		GameEnums.IncidentState.RESOLVED, GameEnums.IncidentState.OUTCOME: return "Closed"
 		_: return "Unknown"
-
-func _add_priority_block(incident: Incident) -> void:
-	add_divider()
-	var priority_label := Label.new()
-	priority_label.text = "Priority %d -- %s" % [incident.priority, _priority_text(incident.priority)]
-	priority_label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
-	priority_label.modulate = MapView.PRIORITY_COLORS.get(incident.priority, Color.WHITE)
-	content.add_child(priority_label)
-	add_dim_line("Threat %d   Harm %d   Vulnerability %d" % [int(incident.threat), int(incident.harm), int(incident.vulnerability)])
 
 func _priority_text(priority: int) -> String:
 	match priority:
@@ -126,12 +185,7 @@ func _add_facts_block(incident: Incident) -> void:
 		add_dim_line("(nothing outstanding)")
 	else:
 		add_dim_line("%d piece(s) of information not yet known" % incident.unknown_facts.size())
-		var request_button := Button.new()
-		request_button.text = "Request Information"
-		request_button.custom_minimum_size = ACTION_BUTTON_SIZE
-		request_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
-		request_button.pressed.connect(_on_request_information)
-		content.add_child(request_button)
+		add_action_row("%d detail(s) outstanding" % incident.unknown_facts.size(), "Request", _on_request_information)
 
 func _on_request_information() -> void:
 	Simulation.commands().request_information(_current_incident_id)
@@ -146,8 +200,9 @@ func _add_intent_block(incident: Incident) -> void:
 		var button := Button.new()
 		button.text = pair[1]
 		button.toggle_mode = true
-		button.custom_minimum_size = ACTION_BUTTON_SIZE
-		button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
+		button.custom_minimum_size = Vector2(0, 24)
+		button.add_theme_font_size_override("font_size", SMALL_FONT_SIZE)
+		UiTheme.style_pill_button(button, incident.command_intent == pair[0])
 		button.button_pressed = incident.command_intent == pair[0]
 		button.pressed.connect(_on_intent_pressed.bind(pair[0]))
 		row.add_child(button)
@@ -177,23 +232,11 @@ func _add_assigned_units_block(incident: Incident) -> void:
 		var unit: PoliceUnit = Simulation.core.resource_manager.get_unit(unit_id)
 		if unit == null:
 			continue
-		var row := HBoxContainer.new()
-		content.add_child(row)
-		var label := Label.new()
-		label.text = "%s%s -- %s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit)]
-		# Narrow enough that, alongside a button (widest real case:
-		# "Reassign here"), the row still fits the panel's own (now much
-		# narrower) 220px width.
-		label.custom_minimum_size = Vector2(90, 0)
-		label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD
-		row.add_child(label)
-		var recall_button := Button.new()
-		recall_button.text = "Recall"
-		recall_button.custom_minimum_size = ACTION_BUTTON_SIZE
-		recall_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
-		recall_button.pressed.connect(_on_stand_down.bind(unit_id))
-		row.add_child(recall_button)
+		add_action_row(
+			"%s%s -- %s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit)],
+			"Recall",
+			_on_stand_down.bind(unit_id),
+		)
 
 ## Spec section 9: surfaces whether this incident could use a sergeant's
 ## attention (difficult/developing/an inexperienced crew) and whether one
@@ -252,26 +295,13 @@ func _add_available_units_block(incident: Incident) -> void:
 		if incident.assigned_unit_ids.has(unit.id):
 			continue # already shown above with a Recall button
 		any_shown = true
-		var row := HBoxContainer.new()
-		content.add_child(row)
-		var label := Label.new()
 		var is_nearest: bool = unit.id == nearest_unit_id
-		label.text = "%s%s -- %s%s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit), "  (nearest)" if is_nearest else ""]
-		# Narrow enough that, alongside a button (widest real case:
-		# "Reassign here"), the row still fits the panel's own (now much
-		# narrower) 220px width.
-		label.custom_minimum_size = Vector2(90, 0)
-		label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
-		if is_nearest:
-			label.modulate = Color(0.5, 0.85, 0.5)
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD
-		row.add_child(label)
-		var send_button := Button.new()
-		send_button.text = "Send" if unit.current_incident_id == "" else "Reassign here"
-		send_button.custom_minimum_size = ACTION_BUTTON_SIZE
-		send_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
-		send_button.pressed.connect(_on_send_unit.bind(unit.id))
-		row.add_child(send_button)
+		add_action_row(
+			"%s%s -- %s%s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit), "  (nearest)" if is_nearest else ""],
+			"Send" if unit.current_incident_id == "" else "Reassign",
+			_on_send_unit.bind(unit.id),
+			is_nearest,
+		)
 	if not any_shown:
 		add_dim_line("(no other units free)")
 
@@ -347,29 +377,15 @@ func _add_specialist_block(incident: Incident) -> void:
 		if unit == null:
 			continue
 		var is_recommended: bool = pair[0] == recommended
-		var row := HBoxContainer.new()
-		content.add_child(row)
-		var label := Label.new()
-		label.text = "%s -- %s%s" % [unit.display_name, manager.status_text(unit), "  (fits this incident)" if is_recommended else ""]
-		# Narrow enough that, alongside a button, the row still fits the
-		# panel's own (now much narrower) 220px width.
-		label.custom_minimum_size = Vector2(90, 0)
-		label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
-		if is_recommended:
-			label.modulate = Color(0.5, 0.85, 0.5)
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD
-		row.add_child(label)
 		if unit.status == GameEnums.SpecialistStatus.COMMITTED and unit.committed_incident_id == incident.id:
-			add_dim_line("(already requested for this incident)")
+			add_dim_line("%s -- already requested here" % unit.display_name)
 			continue
+		var row_text: String = "%s -- %s%s" % [unit.display_name, manager.status_text(unit), "  (fits this incident)" if is_recommended else ""]
 		var can_request: bool = unit.status != GameEnums.SpecialistStatus.UNAVAILABLE and unit.status != GameEnums.SpecialistStatus.COMMITTED
 		if can_request:
-			var request_button := Button.new()
-			request_button.text = "Request"
-			request_button.custom_minimum_size = ACTION_BUTTON_SIZE
-			request_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
-			request_button.pressed.connect(_on_request_specialist.bind(pair[0]))
-			row.add_child(request_button)
+			add_action_row(row_text, "Request", _on_request_specialist.bind(pair[0]), is_recommended)
+		else:
+			add_dim_line(row_text)
 
 func _on_request_specialist(specialist_type: GameEnums.SpecialistType) -> void:
 	Simulation.commands().request_specialist(_current_incident_id, specialist_type)
@@ -390,22 +406,7 @@ func _add_neighbourhood_block(incident: Incident) -> void:
 		if officer.status != GameEnums.NeighbourhoodStatus.AVAILABLE:
 			continue
 		any_available = true
-		var row := HBoxContainer.new()
-		content.add_child(row)
-		var label := Label.new()
-		label.text = officer.officer_name
-		# Narrow enough that, alongside a button, the row still fits the
-		# panel's own (now much narrower) 220px width.
-		label.custom_minimum_size = Vector2(90, 0)
-		label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD
-		row.add_child(label)
-		var task_button := Button.new()
-		task_button.text = "Gather Intel"
-		task_button.custom_minimum_size = ACTION_BUTTON_SIZE
-		task_button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
-		task_button.pressed.connect(_on_task_neighbourhood.bind(officer.id))
-		row.add_child(task_button)
+		add_action_row(officer.officer_name, "Gather Intel", _on_task_neighbourhood.bind(officer.id))
 	if not any_available:
 		add_dim_line("(no neighbourhood officers free)")
 

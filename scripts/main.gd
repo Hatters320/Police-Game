@@ -158,6 +158,7 @@ func _ready() -> void:
 	camera.position = MapView.camera_ground_offset()
 	add_child(camera)
 	camera.make_current()
+	_frame_camera_on_town()
 
 	day_night_overlay = DayNightOverlay.new()
 	add_child(day_night_overlay)
@@ -261,10 +262,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _handle_mouse_button(event: InputEventMouseButton) -> void:
 	if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-		_zoom_by(ZOOM_STEP_IN)
+		_zoom_by(ZOOM_STEP_IN, event.position)
 		return
 	if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-		_zoom_by(ZOOM_STEP_OUT)
+		_zoom_by(ZOOM_STEP_OUT, event.position)
 		return
 	if event.button_index != MOUSE_BUTTON_LEFT:
 		return
@@ -325,15 +326,99 @@ func _handle_pinch() -> void:
 	# Camera2D.zoom), so spreading fingers apart (distance grows) divides
 	# the starting size down rather than multiplying it up.
 	var new_size: float = clampf(_pinch_start_size / (distance / _pinch_start_distance), MIN_CAMERA_SIZE, MAX_CAMERA_SIZE)
-	camera.size = new_size
+	_set_camera_size_anchored(new_size, _current_pinch_midpoint())
+
+## Points the camera at the town's real centre and zooms so the built area
+## fills the view, instead of the previous fixed size 75 aimed at the world
+## origin. Real playtesting: "when the game user starts, the screen should
+## be zoomed so that there is no dead space on their viewing Panel."
+##
+## The town is neither centred on the origin nor square (measured: roughly
+## 69 x 77 units centred near (6, 11)), so both halves of that matter --
+## re-centring alone would still leave margin, and zooming alone would
+## still be off to one side.
+##
+## The projected extent is measured by pushing the footprint's four ground
+## corners through the camera's own basis rather than deriving a formula
+## from the yaw/pitch constants: the projection already encodes them, and a
+## formula would have to duplicate that maths and then drift from it.
+func _frame_camera_on_town() -> void:
+	var bounds: Rect2 = city_3d.town_bounds_xz()
+	if bounds.size.x <= 0.0 or bounds.size.y <= 0.0:
+		return
+	var centre: Vector2 = bounds.position + bounds.size * 0.5
+	camera.position = MapView.camera_ground_offset() + Vector3(centre.x, 0.0, centre.y)
+	camera.force_update_transform()
+
+	var to_camera: Transform3D = camera.global_transform.affine_inverse()
+	var min_v := Vector2(INF, INF)
+	var max_v := Vector2(-INF, -INF)
+	for corner in [
+		Vector3(bounds.position.x, 0.0, bounds.position.y),
+		Vector3(bounds.end.x, 0.0, bounds.position.y),
+		Vector3(bounds.position.x, 0.0, bounds.end.y),
+		Vector3(bounds.end.x, 0.0, bounds.end.y),
+	]:
+		var local: Vector3 = to_camera * corner
+		min_v = Vector2(minf(min_v.x, local.x), minf(min_v.y, local.y))
+		max_v = Vector2(maxf(max_v.x, local.x), maxf(max_v.y, local.y))
+
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+	var aspect: float = viewport_size.x / maxf(viewport_size.y, 1.0)
+	# Camera3D.size is the VERTICAL extent, so a footprint wider than the
+	# viewport needs its horizontal span converted through the aspect ratio
+	# before the two can be compared.
+	var needed: float = maxf(max_v.y - min_v.y, (max_v.x - min_v.x) / maxf(aspect, 0.0001))
+	# Below 1.0 so the town slightly overflows the edges rather than
+	# sitting inside a border of empty ground -- "no dead space" means
+	# filling the view, not fitting neatly within it.
+	camera.size = clampf(needed * TOWN_FILL_FACTOR, MIN_CAMERA_SIZE, MAX_CAMERA_SIZE)
+
+## How much of the framed town extent the initial view covers. Under 1.0
+## deliberately: see _frame_camera_on_town.
+const TOWN_FILL_FACTOR := 0.82
+
+func _current_pinch_midpoint() -> Vector2:
+	var points: Array = _touch_points.values()
+	if points.size() < 2:
+		return get_viewport().get_visible_rect().size * 0.5
+	return (points[0] + points[1]) * 0.5
+
+## Changes zoom while keeping the ground point under `screen_anchor` in
+## the same place on screen.
+##
+## Without this the camera position is left untouched while the view
+## rescales around its own centre, so whatever was under the fingers
+## slides away as you pinch -- real playtesting: "if you pinch the screen
+## and move the position jumps about and you end up somewhere else on the
+## map". Measuring the ground point before and after the size change and
+## shifting the camera by the difference is what makes a pinch feel like
+## it is scaling the map around the fingers rather than teleporting it.
+func _set_camera_size_anchored(new_size: float, screen_anchor: Vector2) -> void:
+	var before: Vector2 = _screen_to_ground(screen_anchor)
+	camera.size = clampf(new_size, MIN_CAMERA_SIZE, MAX_CAMERA_SIZE)
+	# force_update_transform so the ray below is cast through the NEW
+	# projection rather than the one cached from before the size change.
+	camera.force_update_transform()
+	var after: Vector2 = _screen_to_ground(screen_anchor)
+	var drift: Vector2 = before - after
+	camera.position += Vector3(drift.x, 0.0, drift.y) * City3DView.WORLD_SCALE
 
 ## Shared by scroll-wheel input (desktop) and the HUD's +/- buttons
 ## (touch/mobile, which have no scroll-wheel equivalent -- spec section 3/56).
 ## factor > 1 means zoom IN, matching what every call site already expects
 ## from the old Camera2D.zoom convention -- since a bigger Camera3D.size is
 ## more zoomed OUT, zooming in divides rather than multiplies.
-func _zoom_by(factor: float) -> void:
-	camera.size = clampf(camera.size / factor, MIN_CAMERA_SIZE, MAX_CAMERA_SIZE)
+##
+## `screen_anchor` keeps a specific point pinned while zooming (the mouse
+## position for a scroll wheel); the HUD's +/- buttons pass nothing and so
+## zoom about the middle of the screen, which is what a button with no
+## pointer position of its own should do.
+func _zoom_by(factor: float, screen_anchor: Vector2 = Vector2.INF) -> void:
+	var anchor: Vector2 = screen_anchor
+	if anchor == Vector2.INF:
+		anchor = get_viewport().get_visible_rect().size * 0.5
+	_set_camera_size_anchored(camera.size / factor, anchor)
 
 ## Screen tap -> world ground position, via a ray/Y=0-plane intersection --
 ## the 3D equivalent of the old direct Camera2D->world coordinate read.

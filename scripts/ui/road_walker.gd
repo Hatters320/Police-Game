@@ -60,7 +60,14 @@ func _apply_transform(from_pos: Vector3, to_pos: Vector3) -> void:
 	var side: Vector3 = dir.cross(Vector3.UP).normalized() * _lateral_offset
 	position = from_pos.lerp(to_pos, _progress) + side
 	if dir.length_squared() > 0.0001:
-		look_at(position + dir, Vector3.UP)
+		# look_at aims the node's -Z axis at the target, but these models
+		# (Kenney vehicles and the character rig alike) are authored facing
+		# +Z. Aiming at position + dir therefore pointed every car and
+		# pedestrian's back down its direction of travel -- real
+		# playtesting: "the people and cars are moving backwards".
+		# Targeting position - dir puts -Z behind them, so +Z (their front)
+		# leads.
+		look_at(position - dir, Vector3.UP)
 
 func _place_at_edge_start() -> void:
 	if _to_id == null:

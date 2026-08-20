@@ -21,22 +21,16 @@ var content: VBoxContainer
 var _panel: PanelContainer
 var _scroll: ScrollContainer
 
-## Drag-to-scroll state. Real playtesting: "the only way of scrolling the
-## incident, resources or comms panel is on the side bar. This is too hard
-## on the screen." It was -- the scroll bar is a few logical pixels wide,
-## an awkward target on a phone, and a drag anywhere else in the panel did
-## nothing at all. These track a press so a drag anywhere on the panel
-## body scrolls it, the way a native mobile list behaves.
-var _drag_active: bool = false
-var _drag_started_scroll: int = 0
-var _drag_start_pos: Vector2 = Vector2.ZERO
-var _drag_exceeded_threshold: bool = false
+## Drag-anywhere scrolling lives in DragScroll (see that file for why it
+## watches _input rather than the ScrollContainer's gui_input, and for the
+## flick/threshold tuning real playtesting called for).
+var _drag_scroll: DragScroll
+var _scrim: ColorRect
 
-## Movement past this many screen pixels turns a press into a scroll drag
-## rather than a tap -- matched to main.gd's TAP_DRAG_THRESHOLD, which
-## makes the same distinction for map gestures, so both surfaces feel the
-## same under a thumb.
-const DRAG_THRESHOLD := 14.0
+## Group every modal detail panel joins, so any panel can ask "is
+## something modal open above me?" without needing a reference to each
+## one individually.
+const MODAL_PANEL_GROUP := "modal_side_panel"
 
 ## Override to Control.PRESET_TOP_LEFT for a left-docked panel.
 func _panel_anchor() -> int:
@@ -110,6 +104,28 @@ func _ready() -> void:
 	layer = _panel_layer()
 	visible = false
 
+	# A modal detail panel gets a full-screen scrim behind it. It dims the
+	# scene slightly so the pop-up reads as "the thing you are dealing with
+	# now", and -- because it sits above every other layer's content and
+	# stops mouse events -- it also stops taps and drags reaching the map
+	# and the docked lists underneath. Real playtesting: "when you click on
+	# an incident, the scroll screen function still moves the lists of
+	# incidents beneath it... this pop up box of the incident needs to take
+	# priority until it is closed."
+	if _is_modal():
+		_scrim = ColorRect.new()
+		_scrim.color = Color(0.03, 0.05, 0.09, 0.45)
+		_scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+		# Hidden explicitly, and toggled with the panel below, rather than
+		# relying on the CanvasLayer's own `visible` to suppress it: it does
+		# not, and a real screenshot caught all three modal panels' scrims
+		# darkening the entire game -- HUD included -- before any of them
+		# had been opened (the top bar measured (39,52,75) before this and
+		# (17,25,39) after, i.e. dimmed while supposedly hidden).
+		_scrim.visible = false
+		add_child(_scrim)
+
 	var panel := PanelContainer.new()
 	# Rounded translucent card rather than Godot's default opaque grey
 	# panel, per the supplied mockup -- the town stays faintly readable
@@ -118,7 +134,16 @@ func _ready() -> void:
 	var anchor: int = _panel_anchor()
 	panel.set_anchors_preset(anchor)
 	var width: float = _panel_width()
-	panel.position = Vector2(8, PANEL_TOP_Y) if anchor == Control.PRESET_TOP_LEFT else Vector2(-(width + 8.0), PANEL_TOP_Y)
+	match anchor:
+		Control.PRESET_TOP_LEFT:
+			panel.position = Vector2(8, PANEL_TOP_Y)
+		Control.PRESET_CENTER:
+			# PRESET_CENTER anchors all four sides at 0.5, so offsets are
+			# measured from the middle of the screen -- half the panel's own
+			# size back up and left puts its centre on the screen's centre.
+			panel.position = Vector2(-width * 0.5, -_panel_height() * 0.5)
+		_:
+			panel.position = Vector2(-(width + 8.0), PANEL_TOP_Y)
 	add_child(panel)
 	_panel = panel
 
@@ -134,6 +159,14 @@ func _ready() -> void:
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	panel.add_child(scroll)
 	_scroll = scroll
+	# A drag anywhere on the panel body scrolls it. The gate stops a
+	# *docked* list from scrolling while a modal detail panel is open on
+	# top of it -- real playtesting: "when you click on an incident, the
+	# scroll screen function still moves the lists of incidents beneath
+	# it... this pop up box needs to take priority until it is closed."
+	_drag_scroll = DragScroll.attach(self, scroll, panel, _drag_scroll_allowed)
+	if _is_modal():
+		add_to_group(MODAL_PANEL_GROUP)
 	# Rotating a phone, or any other resize, changes how much room a docked
 	# panel has -- without this it would keep whatever height the viewport
 	# happened to be at startup.
@@ -144,56 +177,41 @@ func _ready() -> void:
 	content.add_theme_constant_override("separation", 4)
 	scroll.add_child(content)
 
-## Drag-anywhere scrolling for the panel body.
+## A panel accepts drag-scrolling only when nothing modal sits above it.
+func _drag_scroll_allowed() -> bool:
+	return _is_modal() or not _any_modal_panel_open()
+
+## Whether this panel takes over the screen when open: dimming what is
+## behind it and owning input until closed.
 ##
-## Handled in _input (which runs before Controls get their own turn)
-## rather than on the ScrollContainer's gui_input, because the cards
-## inside are Buttons: they consume the press, so a drag starting on a
-## card -- i.e. most of the panel's area, which is the whole complaint --
-## would never reach the container. Watching here sees every press
-## regardless of what sits under it.
-##
-## Taps still work: nothing is consumed unless the pointer actually moves
-## past DRAG_THRESHOLD. Once it has, the release IS consumed, so a drag
-## that happens to start on a card scrolls the list instead of also
-## opening that card on release -- the same tap-versus-drag arbitration
-## main.gd makes for the map.
-func _input(event: InputEvent) -> void:
-	if not visible or _scroll == null or _panel == null:
-		return
+## Declared explicitly by each panel rather than inferred from
+## _panel_layer(). A first version inferred it (layer > 2) and got it
+## wrong: the always-docked Resources/Incidents lists do not override
+## _panel_layer, so they sit at the same default 3 as the detail panels
+## and were treated as modal too. Since those two are open for the whole
+## shift, their scrims dimmed the entire game permanently -- the HUD's own
+## top bar measured (39,52,75) before and (12,18,29) after, which is
+## exactly one 0.45 scrim composited over it.
+func _is_modal() -> bool:
+	return false
 
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.pressed:
-			if _panel.get_global_rect().has_point(event.position):
-				_drag_active = true
-				_drag_exceeded_threshold = false
-				_drag_start_pos = event.position
-				_drag_started_scroll = _scroll.scroll_vertical
-		else:
-			var was_drag: bool = _drag_exceeded_threshold
-			_drag_active = false
-			_drag_exceeded_threshold = false
-			if was_drag:
-				get_viewport().set_input_as_handled()
-		return
+func _any_modal_panel_open() -> bool:
+	for node in get_tree().get_nodes_in_group(MODAL_PANEL_GROUP):
+		var panel_view := node as SidePanelView
+		if panel_view != null and panel_view.visible:
+			return true
+	return false
 
-	if event is InputEventMouseMotion and _drag_active:
-		var delta: Vector2 = event.position - _drag_start_pos
-		if not _drag_exceeded_threshold and delta.length() > DRAG_THRESHOLD:
-			_drag_exceeded_threshold = true
-		if _drag_exceeded_threshold:
-			# Content follows the finger 1:1: dragging up scrolls down.
-			_scroll.scroll_vertical = _drag_started_scroll - int(delta.y)
-			get_viewport().set_input_as_handled()
-
+## Re-sizes the panel when the viewport changes (rotation) or when the
+## player resizes the dispatcher feed, so a docked panel keeps clear of it.
 func _on_viewport_resized() -> void:
 	if _scroll:
 		_scroll.custom_minimum_size = Vector2(_panel_width(), _panel_height())
 
 func close() -> void:
 	visible = false
-	_drag_active = false
-	_drag_exceeded_threshold = false
+	if _scrim:
+		_scrim.visible = false
 	closed.emit()
 
 func is_open() -> bool:
@@ -201,33 +219,105 @@ func is_open() -> bool:
 
 func _show_panel() -> void:
 	visible = true
+	if _scrim:
+		_scrim.visible = true
 
 func clear_content() -> void:
 	for child in content.get_children():
 		child.queue_free()
 
+## One type scale for every panel, so a single panel can't end up mixing
+## four different sizes the way the incident pop-up did before real
+## playtesting called it out ("this pop up box needs better UI as well.
+## All the text is different sizes etc."). TITLE for the one panel title,
+## SECTION for group headers, CONTENT for body text, SMALL for supporting
+## detail. Nothing should introduce a size outside this scale.
+const TITLE_FONT_SIZE := 15
+const SECTION_FONT_SIZE := 11
+const SMALL_FONT_SIZE := 10
+
 func add_title(text: String) -> void:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 19)
+	label.add_theme_font_size_override("font_size", TITLE_FONT_SIZE)
+	label.add_theme_color_override("font_color", UiTheme.TEXT_PRIMARY)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD
 	content.add_child(label)
 
 func add_close_button() -> void:
 	var button := Button.new()
 	button.text = "Close"
-	button.custom_minimum_size = Vector2(0, 34)
+	button.custom_minimum_size = Vector2(0, 26)
+	button.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
+	UiTheme.style_pill_button(button, false)
 	button.pressed.connect(close)
 	content.add_child(button)
 
 func add_divider() -> void:
-	content.add_child(HSeparator.new())
+	var line := ColorRect.new()
+	line.color = UiTheme.PANEL_BORDER
+	line.custom_minimum_size = Vector2(0, 1)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.add_child(line)
 
 func add_mini_header(text: String) -> void:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 13)
-	label.modulate = Color(0.75, 0.8, 1.0)
+	label.add_theme_font_size_override("font_size", SECTION_FONT_SIZE)
+	label.add_theme_color_override("font_color", UiTheme.TEXT_ACCENT)
 	content.add_child(label)
+
+## A short piece of advice, tinted by how strongly it is meant: green for
+## "this is the sensible next move", amber for "this needs attention".
+func add_advice(text: String, urgent: bool = false) -> void:
+	var row := PanelContainer.new()
+	var accent: Color = Color(0.95, 0.65, 0.3) if urgent else Color(0.5, 0.85, 0.5)
+	row.add_theme_stylebox_override("panel", UiTheme.card_style(accent))
+	content.add_child(row)
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
+	label.add_theme_color_override("font_color", UiTheme.TEXT_PRIMARY)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(label)
+
+## Coloured priority chip ("P1 CRITICAL") for the pop-up header.
+func add_badge(text: String, color: Color) -> void:
+	var row := HBoxContainer.new()
+	content.add_child(row)
+	var badge := PanelContainer.new()
+	badge.add_theme_stylebox_override("panel", UiTheme.badge_style(color))
+	badge.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	row.add_child(badge)
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", SMALL_FONT_SIZE)
+	label.add_theme_color_override("font_color", color)
+	badge.add_child(label)
+
+## Label + action button on one row, at the shared type scale -- every
+## deploy/request row in the incident pop-up goes through here so they
+## can't drift apart from each other again.
+func add_action_row(text: String, button_text: String, on_pressed: Callable, highlight: bool = false) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	content.add_child(row)
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", CONTENT_FONT_SIZE)
+	label.add_theme_color_override("font_color", Color(0.55, 0.9, 0.55) if highlight else UiTheme.TEXT_PRIMARY)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(label)
+	var button := Button.new()
+	button.text = button_text
+	button.custom_minimum_size = Vector2(0, 24)
+	button.add_theme_font_size_override("font_size", SMALL_FONT_SIZE)
+	UiTheme.style_pill_button(button, highlight)
+	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	button.pressed.connect(on_pressed)
+	row.add_child(button)
 
 ## Content font used by every plain-text helper below -- without an
 ## explicit override these all inherited the project's 22px theme default

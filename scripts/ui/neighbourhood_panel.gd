@@ -11,6 +11,10 @@ var _map_view: MapView
 
 ## Draws above the always-docked Resources/Incidents panels, which stay
 ## visible underneath rather than closing whenever this opens.
+## Takes over the screen while open -- see SidePanelView._is_modal.
+func _is_modal() -> bool:
+	return true
+
 func _panel_layer() -> int:
 	return 4
 
