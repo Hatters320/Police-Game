@@ -19,6 +19,7 @@ var hud_view: HudView
 var incident_panel: IncidentPanelView
 var unit_panel: UnitPanelView
 var neighbourhood_panel: NeighbourhoodPanelView
+var kpi_panel: KpiPanelView
 var resources_panel: ResourcesPanelView
 var incidents_list_panel: IncidentsListPanelView
 var day_night_overlay: DayNightOverlay
@@ -187,6 +188,9 @@ func _ready() -> void:
 	neighbourhood_panel = NeighbourhoodPanelView.new()
 	add_child(neighbourhood_panel)
 
+	kpi_panel = KpiPanelView.new()
+	add_child(kpi_panel)
+
 	resources_panel = ResourcesPanelView.new()
 	add_child(resources_panel)
 
@@ -208,8 +212,9 @@ func _ready() -> void:
 	map_view.visible = false
 	map_view.setup(world, incident_panel, unit_panel)
 	map_view.set_camera(camera)
-	map_view.wire_other_panels(neighbourhood_panel)
+	map_view.wire_other_panels(neighbourhood_panel, kpi_panel)
 	neighbourhood_panel.wire(map_view)
+	kpi_panel.wire(map_view)
 	resources_panel.wire(map_view, unit_panel)
 	incidents_list_panel.wire(map_view, incident_panel)
 
@@ -218,6 +223,7 @@ func _ready() -> void:
 	hud_view.wire_overlays(map_view)
 	hud_view.wire_zoom_controls(func(): _zoom_by(ZOOM_STEP_IN), func(): _zoom_by(ZOOM_STEP_OUT))
 	hud_view.wire_neighbourhood_panel(func(): neighbourhood_panel.open())
+	hud_view.wire_kpi_panel(func(): kpi_panel.open())
 	# The two always-docked panels size themselves against the dispatcher
 	# feed's current height so they stop clear of it with a visible gap,
 	# and re-size when the player grows or shrinks the feed. Done after
@@ -240,6 +246,7 @@ func _ready() -> void:
 	# pills re-read real panel state rather than tracking their own taps,
 	# which would drift out of sync the moment either of those happened.
 	neighbourhood_panel.closed.connect(_refresh_panel_pills)
+	kpi_panel.closed.connect(_refresh_panel_pills)
 	resources_panel.closed.connect(_refresh_panel_pills)
 	incidents_list_panel.closed.connect(_refresh_panel_pills)
 	hud_view.hide()
@@ -512,6 +519,7 @@ func _begin_briefing(shift_number: int) -> void:
 	incident_panel.close()
 	unit_panel.close()
 	neighbourhood_panel.close()
+	kpi_panel.close()
 	resources_panel.close()
 	incidents_list_panel.close()
 
@@ -545,6 +553,7 @@ func _refresh_panel_pills() -> void:
 	if hud_view == null:
 		return
 	hud_view.set_panel_active("Team", neighbourhood_panel.is_open())
+	hud_view.set_panel_active("KPI", kpi_panel.is_open())
 	hud_view.set_panel_active("Res", resources_panel.is_open())
 	hud_view.set_panel_active("Inc", incidents_list_panel.is_open())
 
@@ -554,6 +563,7 @@ func _on_shift_ended(summary: Dictionary) -> void:
 	incident_panel.close()
 	unit_panel.close()
 	neighbourhood_panel.close()
+	kpi_panel.close()
 	resources_panel.close()
 	incidents_list_panel.close()
 

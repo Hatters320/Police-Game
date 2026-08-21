@@ -298,6 +298,11 @@ func _add_icon_pill(parent: Node, icon_kind: UiIcon.Kind, on_pressed: Callable) 
 func wire_neighbourhood_panel(on_pressed: Callable) -> void:
 	_panel_buttons["Team"] = _add_pill(_right_cluster, "Team", on_pressed)
 
+## Opens KpiPanelView (the shift performance dashboard) -- same "open a
+## side panel" action as Team/Res/Inc, following that exact pattern.
+func wire_kpi_panel(on_pressed: Callable) -> void:
+	_panel_buttons["KPI"] = _add_pill(_right_cluster, "KPI", on_pressed)
+
 ## Called once by main.gd after MapView exists -- builds the overlay
 ## filter dropdown (spec section 41: still every overlay, just one control
 ## instead of 6 separate toggle buttons, which is most of what let the old

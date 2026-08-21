@@ -59,8 +59,11 @@ func tick(ctx: SimulationContext) -> void:
 	_advance_active_incidents(ctx)
 
 ## Called by ResourceManager the moment a unit assigned to this incident
-## finishes travelling.
-func mark_unit_arrived(incident_id: String, current_minute: int) -> void:
+## finishes travelling. `ctx` is optional (kept so any direct/debug caller
+## without a context still works) -- when given, the KPI dashboard's
+## response-time-vs-target tracking is recorded here, the one real place
+## "first on scene" happens.
+func mark_unit_arrived(incident_id: String, current_minute: int, ctx: SimulationContext = null) -> void:
 	var incident: Incident = active_incidents.get(incident_id)
 	if incident == null:
 		return
@@ -69,6 +72,8 @@ func mark_unit_arrived(incident_id: String, current_minute: int) -> void:
 		incident.state_machine.transition_to(GameEnums.IncidentState.ON_SCENE)
 		if incident.first_on_scene_minute < 0:
 			incident.first_on_scene_minute = current_minute
+			if ctx and ctx.kpi_tracker:
+				ctx.kpi_tracker.record_arrival(incident.priority, float(current_minute - incident.created_at_minute))
 		incident_state_changed.emit(incident_id, old_state, incident.state)
 
 ## Debug/dev tool entry point (spec section 65). Normal generation happens
@@ -230,6 +235,13 @@ func _maybe_escalate(incident: Incident, type_def: IncidentTypeDefinition, ctx: 
 		incident.priority = maxi(incident.priority - 1, 1)
 		incident.threat = clampf(incident.threat + 10.0, 0.0, 100.0)
 		incident.harm = clampf(incident.harm + 10.0, 0.0, 100.0)
+		# Previously confidence only moved on resolution (CommunityManager),
+		# so a call left to escalate unattended was invisible on the town's
+		# confidence reading until (if ever) it was finally dealt with. This
+		# is what makes "ignoring a call costs confidence" real and visible
+		# on the live KPI dashboard as it happens, not just at debrief.
+		if district:
+			district.apply_community_effect(-1.5, 1.0)
 		incident_escalated.emit(incident.id)
 
 func _resolve(incident: Incident, type_def: IncidentTypeDefinition, ctx: SimulationContext) -> void:

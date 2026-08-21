@@ -57,5 +57,11 @@ extends Resource
 ## particular recommendation (most types: a general response is fine).
 @export var recommended_specialist: int = -1
 
+## Which of Officer.skills this incident type most rewards in the
+## responding crew -- e.g. a domestic hinges on communication, a burglary
+## on investigation. Used by DispatchScorer to rank candidate units by
+## suitability, not just proximity.
+@export var primary_skill: String = "response"
+
 func state_duration(state: GameEnums.IncidentState, fallback: float = 10.0) -> float:
 	return state_durations.get(state, fallback)

@@ -136,14 +136,8 @@ static func _score_community(core: SimulationCore) -> Dictionary:
 	return {"score": score, "band": _band_for_score(score), "average_confidence": avg_confidence, "average_tension": avg_tension}
 
 static func _score_workforce(core: SimulationCore) -> Dictionary:
-	var fatigue_sum := 0.0
-	var morale_sum := 0.0
-	var count := 0
-	for officer: Officer in core.officer_manager.officers.values():
-		fatigue_sum += officer.fatigue
-		morale_sum += officer.morale
-		count += 1
-	var avg_fatigue: float = fatigue_sum / count if count > 0 else 0.0
-	var avg_morale: float = morale_sum / count if count > 0 else 80.0
+	var stats: Dictionary = WorkforceStats.average_fatigue_morale(core.officer_manager.officers.values())
+	var avg_fatigue: float = stats["avg_fatigue"]
+	var avg_morale: float = stats["avg_morale"]
 	var score: float = clampf(100.0 - avg_fatigue + (avg_morale - 80.0) * 0.5, 0.0, 100.0)
 	return {"score": score, "band": _band_for_score(score), "average_fatigue": avg_fatigue, "average_morale": avg_morale}

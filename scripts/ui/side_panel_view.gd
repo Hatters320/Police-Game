@@ -417,7 +417,10 @@ func add_dim_line(text: String) -> void:
 ## right hinting the panel is collapsible. Kept separate from add_title so
 ## every existing detail panel is untouched.
 const HEADER_BAR_COLOR := UiTheme.HEADER_BG
-func add_header_bar(text: String) -> void:
+## `badge`, when non-empty, renders as a small pill after the title --
+## e.g. a total-outstanding count on the Dispatch Queue header ("12 OPEN"),
+## so the total is visible without scrolling the list itself.
+func add_header_bar(text: String, badge: String = "") -> void:
 	var bar := PanelContainer.new()
 	bar.add_theme_stylebox_override("panel", UiTheme.header_style())
 	var row := HBoxContainer.new()
@@ -430,6 +433,21 @@ func add_header_bar(text: String) -> void:
 	var label := _clipping_label(text, 10, UiTheme.HEADER_TEXT)
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(label)
+	if badge != "":
+		# A plain Label, not _clipping_label -- that helper zeroes its own
+		# custom_minimum_size specifically so the title label (which sets
+		# SIZE_EXPAND_FILL) can be safely squeezed by the container rather
+		# than force it wider. Without an expand flag of its own, a child
+		# reporting zero minimum size is allocated zero width by the
+		# HBoxContainer, which is exactly why the badge rendered invisibly
+		# (real screenshot: "Dispatch Queue" with no count next to it) until
+		# this was caught -- a plain Label reports its natural text width
+		# instead, so it actually takes up space.
+		var badge_label := Label.new()
+		badge_label.text = badge
+		badge_label.add_theme_font_size_override("font_size", 9)
+		badge_label.add_theme_color_override("font_color", UiTheme.TEXT_ACCENT)
+		row.add_child(badge_label)
 	row.add_child(UiIcon.new(UiIcon.Kind.CHEVRON_DOWN, UiTheme.TEXT_DIM, 10.0))
 	content.add_child(bar)
 

@@ -1529,6 +1529,100 @@ Location: Town Centre / PC Bennett -- Constable / Experience: Low
 Driver: Yes / Fatigue: 7 / Morale: 80 / Skills -- Comms: Low, Response:
 Med...".
 
+**Phase 1 of a larger feature request: smart dispatch, a live KPI
+dashboard, and a tighter consequence loop.** A follow-up request asked for
+a broad slate of systems -- smarter dispatch, performance metrics,
+time-of-day incident variation, proactive officer interactions, a deeper
+consequence engine, supervisor feedback, a rotating shift pattern,
+environment/lighting, dispatch queue polish, and a briefing/debrief
+redesign. Too much for one pass to build *and* genuinely verify, so it's
+being staged: this round is the foundational layer everything else
+builds on, chosen because it delivers value on its own and because later
+phases (supervisor feedback, the deeper consequence engine) need the KPI
+tracking and confidence-linking this round adds. The rest stays on the
+roadmap for follow-up rounds, played and reviewed between each.
+
+*Smarter dispatch.* Unit selection used to offer one hint -- the
+straight-line-nearest available unit -- and otherwise left the player
+reading a flat, unranked list. Added `DispatchScorer`, a stateless engine
+class (matching `IncidentProbabilityEngine`/`IncidentOutcomeEngine`'s
+existing shape) that ranks every available unit by real road-graph travel
+time (not straight-line distance -- a unit on the wrong side of the river
+can be close as the crow flies but genuinely slow to reach), by whether
+its crew's skills suit this incident type (a new `primary_skill` field per
+incident type, e.g. domestic -> communication, burglary -> investigation),
+and by whether a sergeant is aboard when one's actually warranted (reusing
+the existing `IncidentOutcomeEngine.needs_supervisor`/`has_supervisor`
+rather than reimplementing that judgement). The incident panel's "SEND A
+UNIT" list is now ranked best-first with a "recommended" tag and each
+unit's ETA ("~4 min away"), and the top pick's ETA now appears in the
+"SUGGESTED" hint too. Verified against the real engine: a synthetic
+domestic incident scored units with a HIGH-communication officer aboard
+distinctly higher than otherwise-identical crews, and against the live
+browser build, opening a real incident showed "Send Patrol Car 4 --
+recommended, ~12 min away" using the actual road-graph path length.
+
+*Realistic unit names.* Units were labelled "Unit 1", "Unit 2"... --
+`ResourceManager._make_unit` now names them "Patrol Car 1", "Patrol Car
+2"... (display only; the internal `unit_id` used for saves/lookups is
+untouched). Confirmed live across the roster panel, dispatch suggestions,
+and the assigned-units list, which all read from the same `callsign`
+field.
+
+*A live KPI dashboard.* Response-time performance against target,
+public confidence, and officer wellbeing previously only existed as a
+single number computed once at debrief (`DebriefScorer`) -- nothing was
+visible mid-shift. Added `KpiTracker` (shift-scoped, reset each shift like
+`WeatherManager`/`SpecialistManager`'s `setup_shift`), which records every
+incident's response delay against a priority-banded target (P1 15 min, P2
+1 hr, P3 3 hr, plus sensible P4/P5 defaults -- this codebase already
+expresses every duration in simulated minutes, so the request's real-world
+targets map directly with no conversion) from `IncidentManager.
+mark_unit_arrived`, the one real place "first on scene" already happens.
+A new "KPI" HUD pill (following the exact `wire_resources_panel`/
+`wire_incidents_panel` pattern already used for Res/Inc/Team) opens
+`KpiPanelView`: three response-time cards, a town-wide confidence average,
+and a workforce wellbeing card (fatigue/morale, sharing a new
+`WorkforceStats` helper extracted out of `DebriefScorer` so the live and
+end-of-shift numbers can't quietly drift apart), each tappable through to
+a detail view with the target's definition and recent call history.
+Deliberately scoped down from "trends" to a plain recent-calls list --
+this codebase has no charting library, and building one was out of scope
+for this round. Verified against the real engine, both headless (a full
+simulated shift correctly accumulated response-time history bucketed by
+priority) and in the browser: the dashboard opened showing live P1-P3
+percentages, confidence, and wellbeing, each drilling into the detail
+view.
+
+*Dispatch queue: total count, priority-first.* The queue sorted strictly
+newest-first, so a fresh routine call could sit above a lingering critical
+one. Re-sorted priority-first (P1 always floats to the top), newest-first
+within a priority band, and added an "N OPEN" badge to the panel header --
+which needed a real fix along the way: the first attempt used the
+existing `_clipping_label` helper for the badge, which deliberately zeros
+its own `custom_minimum_size` so the *title* label can be safely squeezed
+by its container; without a fill flag of its own, that meant the badge was
+allocated **zero width** by the HBoxContainer and rendered completely
+invisible -- caught via a real screenshot showing "Dispatch Queue" with no
+count next to it despite incidents being open, fixed by building the badge
+from a plain `Label` (matching the existing `add_badge` helper's approach)
+instead, and confirmed fixed with a second screenshot showing "Dispatch...
+4 OPEN".
+
+*Closing the loop: escalation now costs confidence live, not just at
+resolution.* Public confidence only ever moved when an incident resolved
+(`CommunityManager.apply_incident_resolution_effect`) -- an incident left
+to escalate unattended was invisible on the town's confidence reading
+until, if ever, it was finally dealt with. `IncidentManager._maybe_escalate`
+now also applies a small confidence hit via the same
+`DistrictState.apply_community_effect` primitive `CommunityManager`
+already uses, at the new trigger point. Verified against the real engine:
+forced an incident to sit unattended, confirmed via the `incident_escalated`
+signal that confidence dropped by exactly the applied amount (60.0 ->
+58.5) at the moment of the first escalation, then partially recovered
+toward baseline afterward exactly as `decay_toward_baseline` already does
+for every other district variable.
+
 Not built: real art assets. Everything drawn above is still flat-colour
 primitives, just arranged more deliberately toward the spec's
 "SimCity-style" target (section 2) than the original placeholder shapes

@@ -41,6 +41,7 @@ static func _shoplifting() -> IncidentTypeDefinition:
 	def.escalation_risk_per_minute = 0.005
 	def.known_fact_templates = ["Store security reports a theft in progress", "Description of offender given"]
 	def.unknown_fact_templates = ["Whether the offender is still in the area", "Value of goods taken"]
+	def.primary_skill = "response" # catching an offender who may still be nearby
 	return def
 
 static func _asb() -> IncidentTypeDefinition:
@@ -69,6 +70,7 @@ static func _asb() -> IncidentTypeDefinition:
 	def.escalation_risk_per_minute = 0.008
 	def.known_fact_templates = ["Residents report a group causing a nuisance"]
 	def.unknown_fact_templates = ["Number of people involved", "Whether alcohol is involved"]
+	def.primary_skill = "community" # de-escalating and dispersing a group, not enforcement
 	return def
 
 static func _burglary() -> IncidentTypeDefinition:
@@ -97,6 +99,7 @@ static func _burglary() -> IncidentTypeDefinition:
 	def.known_fact_templates = ["Forced entry reported", "Homeowner discovered the break-in on return"]
 	def.unknown_fact_templates = ["Whether the offender is still on scene", "What was taken", "Point of entry"]
 	def.recommended_specialist = GameEnums.SpecialistType.DOG # tracking a suspect who's fled the scene
+	def.primary_skill = "investigation" # matches this type's own favoured_skill on its outcomes
 	return def
 
 static func _assault() -> IncidentTypeDefinition:
@@ -125,6 +128,7 @@ static func _assault() -> IncidentTypeDefinition:
 	def.known_fact_templates = ["Caller reports a physical altercation"]
 	def.unknown_fact_templates = ["Number of people involved", "Whether weapons are involved", "Injuries sustained"]
 	def.recommended_specialist = GameEnums.SpecialistType.FIREARMS # violence in progress -- officer safety
+	def.primary_skill = "response" # physical intervention, matches this type's own favoured_skill
 	return def
 
 static func _domestic() -> IncidentTypeDefinition:
@@ -155,4 +159,5 @@ static func _domestic() -> IncidentTypeDefinition:
 	def.escalation_risk_per_minute = 0.015
 	def.known_fact_templates = ["Neighbour reports a loud argument"]
 	def.unknown_fact_templates = ["Whether children are present", "Whether this is a repeat occurrence", "Current safety of parties"]
+	def.primary_skill = "communication" # de-escalating parties, not enforcement-first
 	return def

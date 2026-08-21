@@ -115,13 +115,13 @@ func _add_suggestions_block(incident: Incident, location: LocationDefinition) ->
 
 	var shown := 0
 	if incident.assigned_unit_ids.is_empty():
-		var nearest_id: String = _nearest_available_unit_id(incident, location)
-		if nearest_id != "":
-			var nearest: PoliceUnit = Simulation.core.resource_manager.get_unit(nearest_id)
-			if nearest:
-				var urgent: bool = incident.priority <= 2
-				add_advice("Send %s -- nearest available unit." % nearest.callsign, urgent)
-				shown += 1
+		var type_def_for_rank: IncidentTypeDefinition = _type_def_for(incident.type_id)
+		var ranked: Array[Dictionary] = _ranked_available_units(incident, location, type_def_for_rank)
+		if not ranked.is_empty():
+			var top: PoliceUnit = ranked[0]["unit"]
+			var urgent: bool = incident.priority <= 2
+			add_advice("Send %s -- recommended, %s." % [top.callsign, _eta_text(ranked[0]["eta_minutes"])], urgent)
+			shown += 1
 		else:
 			add_advice("No units free. Consider recalling one from a lower-priority job.", true)
 			shown += 1
@@ -282,51 +282,70 @@ func _on_stand_down(unit_id: String) -> void:
 	Simulation.commands().stand_down_unit(unit_id)
 	refresh()
 
-## The nearest-unit tag (below) is real guidance, not decoration -- spec
-## section 25/56 both want the player steered toward a sensible choice
-## rather than reading five equivalent-looking rows and guessing.
+## The recommended tag + ETA (below) are real guidance, not decoration --
+## spec section 25/56 both want the player steered toward a sensible
+## choice rather than reading five equivalent-looking rows and guessing.
+## Ranked by DispatchScorer (skill fit for this incident type, real
+## road-graph travel time, and supervision need), not just distance.
 func _add_available_units_block(incident: Incident) -> void:
 	add_divider()
 	add_mini_header("SEND A UNIT")
 	var location: LocationDefinition = Simulation.core.world.get_location(incident.location_id)
-	var nearest_unit_id: String = _nearest_available_unit_id(incident, location)
-	var any_shown := false
+	var type_def: IncidentTypeDefinition = _type_def_for(incident.type_id)
+	var candidates: Array[Dictionary] = _ranked_available_units(incident, location, type_def)
+	if candidates.is_empty():
+		add_dim_line("(no other units free)")
+		return
+	for i in candidates.size():
+		var unit: PoliceUnit = candidates[i]["unit"]
+		var is_recommended: bool = i == 0
+		add_action_row(
+			"%s%s -- %s%s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit), "  (recommended)" if is_recommended else ""],
+			"Send" if unit.current_incident_id == "" else "Reassign",
+			_on_send_unit.bind(unit.id),
+			is_recommended,
+		)
+		add_dim_line("    %s" % _eta_text(candidates[i]["eta_minutes"]))
+
+## Every available, unassigned-to-this-incident unit, scored by
+## DispatchScorer and sorted best-first. Shared by the "SUGGESTED" nearest
+## -unit hint and the "SEND A UNIT" list so the two always agree on who
+## the top pick is.
+func _ranked_available_units(incident: Incident, location: LocationDefinition, type_def: IncidentTypeDefinition) -> Array[Dictionary]:
+	var road_graph: RoadGraph = Simulation.core.road_graph
+	var speed: float = ResourceManager.BASE_SPEED_UNITS_PER_MIN
+	if Simulation.core.weather_manager.is_raining():
+		speed *= WeatherManager.RAIN_TRAVEL_SPEED_MULTIPLIER
+	var candidates: Array[Dictionary] = []
 	for unit: PoliceUnit in Simulation.core.resource_manager.units.values():
 		if unit.status == GameEnums.UnitStatus.ON_BREAK or unit.status == GameEnums.UnitStatus.UNAVAILABLE:
 			continue
 		if incident.assigned_unit_ids.has(unit.id):
 			continue # already shown above with a Recall button
-		any_shown = true
-		var is_nearest: bool = unit.id == nearest_unit_id
-		add_action_row(
-			"%s%s -- %s%s" % [unit.callsign, _sergeant_tag(unit), _unit_status_text(unit), "  (nearest)" if is_nearest else ""],
-			"Send" if unit.current_incident_id == "" else "Reassign",
-			_on_send_unit.bind(unit.id),
-			is_nearest,
-		)
-	if not any_shown:
-		add_dim_line("(no other units free)")
+		var crew: Array[Officer] = _crew_for_unit(unit)
+		var result: Dictionary = DispatchScorer.score_unit(unit, crew, incident, type_def, location, road_graph, speed)
+		candidates.append({"unit": unit, "eta_minutes": result["eta_minutes"], "score": result["score"]})
+	candidates.sort_custom(func(a, b): return a["score"] > b["score"])
+	return candidates
 
-## Straight-line distance from each candidate unit's current position to
-## the incident's location -- a cheap, close-enough proxy for travel time
-## (the real path uses RoadGraph, which would be truer but isn't worth a
-## pathfind per unit just to sort a hint) among units this block already
-## considers sendable.
-func _nearest_available_unit_id(incident: Incident, location: LocationDefinition) -> String:
-	if location == null:
-		return ""
-	var nearest_id: String = ""
-	var nearest_dist: float = INF
-	for unit: PoliceUnit in Simulation.core.resource_manager.units.values():
-		if unit.status == GameEnums.UnitStatus.ON_BREAK or unit.status == GameEnums.UnitStatus.UNAVAILABLE:
-			continue
-		if incident.assigned_unit_ids.has(unit.id):
-			continue
-		var dist: float = unit.current_position.distance_to(location.position)
-		if dist < nearest_dist:
-			nearest_dist = dist
-			nearest_id = unit.id
-	return nearest_id
+func _crew_for_unit(unit: PoliceUnit) -> Array[Officer]:
+	var officers: Array[Officer] = []
+	for officer_id in unit.officer_ids:
+		var officer: Officer = Simulation.core.officer_manager.get_officer(officer_id)
+		if officer:
+			officers.append(officer)
+	return officers
+
+## "Display estimated travel time for each available unit before
+## dispatch" -- spec ask. Godot's road-graph path length is in the same
+## world-unit scale ResourceManager's travel tick already uses, so this
+## reads the same as the ETA the unit will actually take once dispatched.
+func _eta_text(eta_minutes: float) -> String:
+	if is_inf(eta_minutes):
+		return "no road route found"
+	if eta_minutes < 1.0:
+		return "under 1 min away"
+	return "~%d min away" % roundi(eta_minutes)
 
 func _on_send_unit(unit_id: String) -> void:
 	Simulation.commands().assign_unit_to_incident(unit_id, _current_incident_id)

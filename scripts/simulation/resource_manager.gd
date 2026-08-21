@@ -58,7 +58,10 @@ func _make_unit(number: int, crew: Array[Officer], start_location: LocationDefin
 		officer_ids.append(o.id)
 		o.status = GameEnums.OfficerStatus.ON_UNIT
 	var unit_id: String = "unit_%d" % number
-	var unit := PoliceUnit.new(unit_id, "Unit %d" % number, officer_ids)
+	# Display name only -- unit_id (used for saves/lookups) is untouched.
+	# "Patrol Car N" reads as a real callsign; "Unit N" read as a debug
+	# placeholder.
+	var unit := PoliceUnit.new(unit_id, "Patrol Car %d" % number, officer_ids)
 	unit.status = GameEnums.UnitStatus.AVAILABLE
 	if start_location:
 		unit.current_position = start_location.position
@@ -106,7 +109,7 @@ func _advance_travel(unit: PoliceUnit, ctx: SimulationContext) -> void:
 		return
 	if unit.current_incident_id != "":
 		unit.status = GameEnums.UnitStatus.ON_SCENE
-		ctx.incident_manager.mark_unit_arrived(unit.current_incident_id, ctx.current_minute)
+		ctx.incident_manager.mark_unit_arrived(unit.current_incident_id, ctx.current_minute, ctx)
 	elif unit.patrol_mode == GameEnums.PatrolMode.DIRECTED and unit.patrol_location_id != "":
 		unit.status = GameEnums.UnitStatus.PATROL
 	else:

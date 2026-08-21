@@ -53,7 +53,6 @@ func refresh() -> void:
 	if not is_open():
 		return
 	clear_content()
-	add_header_bar("Dispatch Queue")
 
 	# active_incidents.erase() for a just-resolved incident happens slightly
 	# after IncidentManager emits incident_resolved -- is_open() filters it
@@ -65,13 +64,20 @@ func refresh() -> void:
 	for incident: Incident in Simulation.core.incident_manager.active_incidents.values():
 		if incident.is_open():
 			incidents.append(incident)
+	add_header_bar("Dispatch Queue", "%d OPEN" % incidents.size() if not incidents.is_empty() else "")
 	if incidents.is_empty():
 		add_dim_line("(none currently open)")
 		return
-	# Newest first, per a real player request -- a fresh call is what a
-	# player most needs to see without scrolling, and priority is already
-	# visible per-row via the accent colour/text.
-	incidents.sort_custom(func(a, b): return a.created_at_minute > b.created_at_minute)
+	# Priority first (1 = most critical, floats to the top), newest first
+	# within the same priority -- "clear prioritisation tools for the
+	# player" (feature request). A fresh routine call no longer buries a
+	# lingering critical one further down the list the way pure
+	# newest-first could; priority is still reinforced per-row by the
+	# existing accent colour/text.
+	incidents.sort_custom(func(a, b):
+		if a.priority != b.priority:
+			return a.priority < b.priority
+		return a.created_at_minute > b.created_at_minute)
 	for incident: Incident in incidents:
 		var accent: Color = DISPATCHED_COLOR if not incident.assigned_unit_ids.is_empty() else MapView.PRIORITY_COLORS.get(incident.priority, Color.GRAY)
 		add_card(
