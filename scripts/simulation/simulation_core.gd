@@ -30,6 +30,8 @@ var specialist_manager: SpecialistManager = SpecialistManager.new()
 var neighbourhood_manager: NeighbourhoodManager = NeighbourhoodManager.new()
 var weather_manager: WeatherManager = WeatherManager.new()
 var kpi_tracker: KpiTracker = KpiTracker.new()
+var officer_interaction_manager: OfficerInteractionManager = OfficerInteractionManager.new()
+var supervisor_feedback_manager: SupervisorFeedbackManager = SupervisorFeedbackManager.new()
 var commands: Commands = Commands.new()
 var debug_commands: DebugCommands = DebugCommands.new()
 
@@ -52,6 +54,7 @@ func initialize(
 	event_manager.setup(event_defs)
 	specialist_manager.setup()
 	neighbourhood_manager.setup()
+	supervisor_feedback_manager.setup(incident_manager)
 
 	if rng_seed != 0:
 		rng.seed = rng_seed
@@ -74,6 +77,8 @@ func initialize(
 	ctx.neighbourhood_manager = neighbourhood_manager
 	ctx.weather_manager = weather_manager
 	ctx.kpi_tracker = kpi_tracker
+	ctx.officer_interaction_manager = officer_interaction_manager
+	ctx.supervisor_feedback_manager = supervisor_feedback_manager
 	ctx.commands = commands
 	ctx.debug_commands = debug_commands
 	ctx.rng = rng
@@ -96,6 +101,7 @@ func prepare_shift(shift_number: int, start_minute: int, duration_minutes: int, 
 	specialist_manager.setup_shift(rng)
 	weather_manager.setup_shift(rng)
 	kpi_tracker.reset_shift()
+	supervisor_feedback_manager.reset_shift()
 	game_clock.total_minutes = start_minute
 
 ## Confirms the briefing (spec section 16's "confirm the shift plan") --
@@ -150,6 +156,7 @@ func _tick_sim(dt_minutes: int) -> void:
 	fatigue_manager.tick(ctx)
 	specialist_manager.tick(ctx)
 	neighbourhood_manager.tick(ctx)
+	supervisor_feedback_manager.tick(ctx)
 	tick_completed.emit()
 
 func _end_shift() -> void:

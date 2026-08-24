@@ -24,6 +24,8 @@ var specialist_manager: SpecialistManager
 var neighbourhood_manager: NeighbourhoodManager
 var weather_manager: WeatherManager
 var kpi_tracker: KpiTracker
+var officer_interaction_manager: OfficerInteractionManager
+var supervisor_feedback_manager: SupervisorFeedbackManager
 var commands: Commands
 var debug_commands: DebugCommands
 var rng: RandomNumberGenerator

@@ -1623,6 +1623,67 @@ signal that confidence dropped by exactly the applied amount (60.0 ->
 toward baseline afterward exactly as `decay_toward_baseline` already does
 for every other district variable.
 
+**Phase 2 of the same feature request: officer interaction pop-ups, a
+deeper consequence engine, and supervisor feedback.** Phase 1 covered
+dispatch, KPIs, and the dispatch queue; this round covers the three
+remaining request items that are really one thing -- decisions having
+consequences the player actually feels, not just reads about at debrief.
+Still on the roadmap: the rotating shift pattern, time-of-day incident
+type variation, environment/lighting/seasons, and the briefing/debrief
+redesign.
+
+*Scope note, same as Phase 1's:* every "AI-driven" system already in this
+codebase (`IncidentOutcomeEngine`, `DebriefScorer`'s narrative) is
+deterministic, templated logic built from real tracked numbers, not a
+live generative call -- there's no existing integration point for one,
+and adding one would be a much larger, network-dependent change out of
+scope here. Officer dialogue and supervisor messages continue that
+pattern.
+
+*Officer interaction pop-ups.* `FatigueManager.fatigue_warning` already
+fired once per rising-edge crossing of fatigue >= 70 (added a prior
+round) but nothing consumed it beyond a HUD counter. Added a matching
+`morale_concern` signal (same edge-trigger pattern, morale < 40), an
+`OfficerInteractionManager` queue so several officers crossing a
+threshold in the same tick get shown one at a time rather than lost or
+stacked, and a new modal `OfficerInteractionPanelView` (centred, like the
+incident pop-up) offering 2-3 real response options -- grant the break,
+ask them to hold, or send the car back to the station, each resolving
+through a new `Commands.respond_to_officer_interaction` that always
+applies a real fatigue/morale effect, moving the unit too when its
+status structurally allows it. Verified against the real engine: forced
+a fatigue/morale crossing, confirmed each signal fires exactly once (not
+again while still elevated), confirmed the response Command applies the
+right effect and rejects an unknown response id.
+
+*A visible, probabilistic consequence, not just a number.* The prior
+round's escalation-confidence hit was a flat, invisible number. Added
+`ConsequenceEngine.maybe_apply_escalation_consequence`, rolled on every
+escalation: a 40% chance (the request's own "not all missed incidents
+have to have a consequence -- AI can determine") of a second, visible
+consequence -- a real sentence appended to the incident's KNOWN facts
+(e.g. "The delay meant the offender had already left before anyone
+arrived") plus a small extra confidence hit. Verified against the real
+engine over 200 trials: applied 40.5% of the time, matching the intended
+rate almost exactly; confidence dropped on every application until it
+hit its own floor at 0, where it correctly stopped -- which is what a
+naive test assertion first flagged as a false failure before the
+clamping behaviour was recognised as correct.
+
+*Supervisor feedback.* Added `SupervisorFeedbackManager`, ticked but
+internally gated to evaluate only every 30 simulated minutes: flags poor
+P1/P2 response attainment (via the KPI dashboard's own tracker), too many
+still-open incidents, or too many escalations this shift, and posts one
+templated Chief Inspector line to the dispatcher feed citing the real
+number that triggered it, on a 60-minute cooldown so multiple
+simultaneously-true conditions don't spam the feed. Verified against the
+real deployed build over an 11-minute live session (nothing was ever
+dispatched, deliberately, to let the backlog grow): a Chief Inspector
+message fired at 20:01 ("You've got 4 incidents still outstanding...")
+and a second one at exactly 21:01 -- 60 simulated minutes later, to the
+minute -- confirming both the trigger and the cooldown work correctly
+end to end in the real browser, not just headlessly.
+
 Not built: real art assets. Everything drawn above is still flat-colour
 primitives, just arranged more deliberately toward the spec's
 "SimCity-style" target (section 2) than the original placeholder shapes

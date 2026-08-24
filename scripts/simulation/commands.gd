@@ -141,14 +141,25 @@ func recall_to_station(unit_id: String) -> Dictionary:
 		return _reject("recall_to_station", "unknown unit")
 	if unit.status != GameEnums.UnitStatus.PATROL:
 		return _reject("recall_to_station", "unit is not on patrol")
+	if not _send_unit_to_station(unit):
+		return _reject("recall_to_station", "police station not found")
+	return {"result": GameEnums.CommandResultCode.OK}
+
+## Shared by recall_to_station and respond_to_officer_interaction's
+## "recall_station" response -- the latter needs to work from AVAILABLE as
+## well as PATROL (a fatigued officer's unit isn't necessarily out on
+## patrol), so the travel itself is factored out from recall_to_station's
+## PATROL-only guard. Returns false only if the station location is
+## missing from world data.
+func _send_unit_to_station(unit: PoliceUnit) -> bool:
 	var station: LocationDefinition = _ctx.world.get_location(_ctx.world.police_station_location_id)
 	if station == null:
-		return _reject("recall_to_station", "police station not found")
+		return false
 	unit.patrol_mode = GameEnums.PatrolMode.RESERVE
 	unit.patrol_location_id = ""
 	var path: PackedVector2Array = _ctx.road_graph.get_path(unit.current_road_node_id, station.nearest_road_node_id)
 	unit.begin_travel(path, station.nearest_road_node_id, "")
-	return {"result": GameEnums.CommandResultCode.OK}
+	return true
 
 func send_for_break(unit_id: String) -> Dictionary:
 	var unit: PoliceUnit = _ctx.resource_manager.get_unit(unit_id)
@@ -173,6 +184,58 @@ func return_from_break(unit_id: String) -> Dictionary:
 		if officer:
 			officer.status = GameEnums.OfficerStatus.ON_UNIT
 	return {"result": GameEnums.CommandResultCode.OK}
+
+## Resolves an OfficerInteractionPanelView prompt (feature request: officer
+## pop-ups with "multiple response options that influence future
+## outcomes"). Always succeeds with a real fatigue/morale effect once the
+## officer/response are valid -- the physical unit action (break/recall)
+## only happens when the unit's current status structurally allows it
+## (send_for_break/recall_to_station's own guards would otherwise silently
+## reject mid-incident, which would make a response button do nothing);
+## when the unit is actively committed to an incident (TRAVELLING/
+## ON_SCENE), only the officer-level effect applies -- the response is
+## still felt, just not as a unit movement.
+func respond_to_officer_interaction(officer_id: String, response_id: String) -> Dictionary:
+	var officer: Officer = _ctx.officer_manager.get_officer(officer_id)
+	if officer == null:
+		return _reject("respond_to_officer_interaction", "unknown officer")
+	var unit: PoliceUnit = _ctx.resource_manager.get_unit(officer.current_unit_id)
+	var unit_free: bool = unit != null and (unit.status == GameEnums.UnitStatus.AVAILABLE or unit.status == GameEnums.UnitStatus.PATROL)
+
+	match response_id:
+		"grant_break":
+			if unit_free:
+				_put_unit_on_break(unit)
+			officer.morale = clampf(officer.morale + 3.0, 0.0, 100.0)
+		"ease_workload":
+			if unit_free:
+				_put_unit_on_break(unit)
+			officer.morale = clampf(officer.morale + 8.0, 0.0, 100.0)
+		"ask_to_hold":
+			officer.fatigue = clampf(officer.fatigue + 5.0, 0.0, 100.0)
+			officer.morale = clampf(officer.morale + 3.0, 0.0, 100.0)
+		"acknowledge_push_on":
+			officer.morale = clampf(officer.morale + 1.0, 0.0, 100.0)
+		"recall_station":
+			if unit_free:
+				_send_unit_to_station(unit)
+			officer.morale = clampf(officer.morale + 5.0, 0.0, 100.0)
+			officer.fatigue = clampf(officer.fatigue - 5.0, 0.0, 100.0)
+		"recall_debrief":
+			if unit_free:
+				_send_unit_to_station(unit)
+			officer.morale = clampf(officer.morale + 8.0, 0.0, 100.0)
+			officer.fatigue = clampf(officer.fatigue - 5.0, 0.0, 100.0)
+		_:
+			return _reject("respond_to_officer_interaction", "unknown response")
+	return {"result": GameEnums.CommandResultCode.OK}
+
+func _put_unit_on_break(unit: PoliceUnit) -> void:
+	unit.status = GameEnums.UnitStatus.ON_BREAK
+	for officer_id in unit.officer_ids:
+		var crew_officer: Officer = _ctx.officer_manager.get_officer(officer_id)
+		if crew_officer:
+			crew_officer.status = GameEnums.OfficerStatus.ON_BREAK
 
 ## REQUEST SPECIALIST (spec section 11/25) -- not gated by incident type in
 ## the MVP, since spec doesn't specify per-type eligibility and "simple

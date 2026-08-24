@@ -124,6 +124,7 @@ const CAMERA_DISTANCE := 34.0
 var _camera: Camera3D
 var _neighbourhood_panel: NeighbourhoodPanelView
 var _kpi_panel: KpiPanelView
+var _officer_interaction_panel: OfficerInteractionPanelView
 
 func setup(world: WorldMapData, incident_panel: IncidentPanelView, unit_panel: UnitPanelView) -> void:
 	_world = world
@@ -144,12 +145,17 @@ func setup(world: WorldMapData, incident_panel: IncidentPanelView, unit_panel: U
 ## close_other_panels below only ever needs to arbitrate between the three
 ## detail overlays (Incident/Unit/Neighbourhood), which still are mutually
 ## exclusive and draw on a higher CanvasLayer, on top of the docked ones.
-func wire_other_panels(neighbourhood_panel: NeighbourhoodPanelView, kpi_panel: KpiPanelView = null) -> void:
+func wire_other_panels(
+	neighbourhood_panel: NeighbourhoodPanelView,
+	kpi_panel: KpiPanelView = null,
+	officer_interaction_panel: OfficerInteractionPanelView = null,
+) -> void:
 	_neighbourhood_panel = neighbourhood_panel
 	_kpi_panel = kpi_panel
+	_officer_interaction_panel = officer_interaction_panel
 
 func close_other_panels(except: Node = null) -> void:
-	for panel in [_incident_panel, _unit_panel, _neighbourhood_panel, _kpi_panel]:
+	for panel in [_incident_panel, _unit_panel, _neighbourhood_panel, _kpi_panel, _officer_interaction_panel]:
 		if panel and panel != except and panel.is_open():
 			panel.close()
 

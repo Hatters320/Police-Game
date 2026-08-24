@@ -115,6 +115,7 @@ func _ready() -> void:
 	Simulation.core.incident_manager.incident_resolved.connect(_on_incident_resolved)
 	Simulation.core.incident_manager.incident_state_changed.connect(_on_incident_state_changed)
 	Simulation.core.fatigue_manager.fatigue_warning.connect(_on_fatigue_warning)
+	Simulation.core.supervisor_feedback_manager.feedback_issued.connect(_on_supervisor_feedback)
 	Simulation.core.tick_completed.connect(refresh_stats)
 	# Commands.gd's own header comment says "nothing silently no-ops", but
 	# until this, nothing in the UI actually listened for a rejection --
@@ -383,6 +384,13 @@ func _refresh_speed_pills() -> void:
 func _on_fatigue_warning(officer_id: String) -> void:
 	_fatigue_warning_count += 1
 	_append_feed("Fatigue warning: %s" % officer_id)
+
+## Feature request's "Supervisor Feedback System" -- the message already
+## comes fully formed ("Chief Inspector: ...") from
+## SupervisorFeedbackManager, templated from real KPI/escalation/backlog
+## numbers rather than generated here.
+func _on_supervisor_feedback(message: String) -> void:
+	_append_feed(message, Color(0.95, 0.55, 0.25))
 
 ## Player-facing wording for Commands.gd's rejection reasons -- most
 ## already read fine as-is ("incident still being assessed", "unit not

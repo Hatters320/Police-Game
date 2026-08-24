@@ -6,6 +6,10 @@ extends RefCounted
 ## they" stay independent concerns.
 
 signal fatigue_warning(officer_id: String)
+## Edge-triggered exactly like fatigue_warning, on morale dropping below
+## LOW_MORALE_THRESHOLD -- the officer-interaction "workload concern"
+## pop-up's trigger (scripts/simulation/officer_interaction_manager.gd).
+signal morale_concern(officer_id: String)
 
 const ENGAGED_RATE := 0.12 # fatigue points per simulated minute, actively on an incident
 const IDLE_RATE := 0.04 # ... available or on patrol
@@ -13,6 +17,7 @@ const RECOVERY_RATE := 0.5 # ... on a break
 const MORALE_DRAIN_THRESHOLD := 70.0
 const MORALE_DRAIN_RATE := 0.02
 const MORALE_RECOVERY_RATE := 0.05
+const LOW_MORALE_THRESHOLD := 40.0
 
 func tick(ctx: SimulationContext) -> void:
 	for officer: Officer in ctx.officer_manager.officers.values():
@@ -21,9 +26,12 @@ func tick(ctx: SimulationContext) -> void:
 			continue
 		var engaged: bool = _is_actively_engaged(officer, ctx.resource_manager)
 		var was_elevated: bool = officer.is_elevated_fatigue()
+		var was_low_morale: bool = officer.morale < LOW_MORALE_THRESHOLD
 		_accrue(officer, ctx.dt_minutes, engaged)
 		if not was_elevated and officer.is_elevated_fatigue():
 			fatigue_warning.emit(officer.id)
+		if not was_low_morale and officer.morale < LOW_MORALE_THRESHOLD:
+			morale_concern.emit(officer.id)
 
 func _is_actively_engaged(officer: Officer, resource_manager: ResourceManager) -> bool:
 	if officer.current_unit_id == "":

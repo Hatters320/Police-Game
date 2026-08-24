@@ -36,6 +36,21 @@ func restore_officer(officer_id: String) -> void:
 	if officer:
 		officer.status = GameEnums.OfficerStatus.AVAILABLE
 
+## Sets the value directly rather than emitting FatigueManager's
+## fatigue_warning/morale_concern itself -- setting it just under the
+## threshold and letting the next real tick's normal accrual cross it is
+## what exercises the actual edge-trigger logic under test, rather than
+## bypassing it.
+func force_officer_fatigue(officer_id: String, value: float) -> void:
+	var officer: Officer = _ctx.officer_manager.get_officer(officer_id)
+	if officer:
+		officer.fatigue = clampf(value, 0.0, 100.0)
+
+func force_officer_morale(officer_id: String, value: float) -> void:
+	var officer: Officer = _ctx.officer_manager.get_officer(officer_id)
+	if officer:
+		officer.morale = clampf(value, 0.0, 100.0)
+
 func advance_time(minutes: int) -> void:
 	_ctx.game_clock.force_advance_minutes(minutes)
 

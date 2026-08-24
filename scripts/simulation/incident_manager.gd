@@ -242,6 +242,11 @@ func _maybe_escalate(incident: Incident, type_def: IncidentTypeDefinition, ctx: 
 		# on the live KPI dashboard as it happens, not just at debrief.
 		if district:
 			district.apply_community_effect(-1.5, 1.0)
+		# "Not all missed incidents have to have a consequence -- AI can
+		# determine" -- a probabilistic second, visible consequence on top
+		# of the flat confidence hit above, rather than a guaranteed one
+		# every time. See ConsequenceEngine's own doc comment.
+		ConsequenceEngine.maybe_apply_escalation_consequence(incident, district, ctx.rng)
 		incident_escalated.emit(incident.id)
 
 func _resolve(incident: Incident, type_def: IncidentTypeDefinition, ctx: SimulationContext) -> void:

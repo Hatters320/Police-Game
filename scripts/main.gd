@@ -20,6 +20,7 @@ var incident_panel: IncidentPanelView
 var unit_panel: UnitPanelView
 var neighbourhood_panel: NeighbourhoodPanelView
 var kpi_panel: KpiPanelView
+var officer_interaction_panel: OfficerInteractionPanelView
 var resources_panel: ResourcesPanelView
 var incidents_list_panel: IncidentsListPanelView
 var day_night_overlay: DayNightOverlay
@@ -191,6 +192,9 @@ func _ready() -> void:
 	kpi_panel = KpiPanelView.new()
 	add_child(kpi_panel)
 
+	officer_interaction_panel = OfficerInteractionPanelView.new()
+	add_child(officer_interaction_panel)
+
 	resources_panel = ResourcesPanelView.new()
 	add_child(resources_panel)
 
@@ -212,9 +216,10 @@ func _ready() -> void:
 	map_view.visible = false
 	map_view.setup(world, incident_panel, unit_panel)
 	map_view.set_camera(camera)
-	map_view.wire_other_panels(neighbourhood_panel, kpi_panel)
+	map_view.wire_other_panels(neighbourhood_panel, kpi_panel, officer_interaction_panel)
 	neighbourhood_panel.wire(map_view)
 	kpi_panel.wire(map_view)
+	officer_interaction_panel.wire(map_view)
 	resources_panel.wire(map_view, unit_panel)
 	incidents_list_panel.wire(map_view, incident_panel)
 
@@ -250,6 +255,17 @@ func _ready() -> void:
 	resources_panel.closed.connect(_refresh_panel_pills)
 	incidents_list_panel.closed.connect(_refresh_panel_pills)
 	hud_view.hide()
+
+	# Officer interaction pop-ups (feature request): the game interrupting
+	# the player, not something tapped open -- FatigueManager's edge-
+	# triggered signals feed a small queue rather than opening the panel
+	# directly, so several officers crossing a threshold in the same tick
+	# still get shown one at a time.
+	Simulation.core.fatigue_manager.fatigue_warning.connect(
+		func(officer_id): _queue_officer_interaction(officer_id, "break_request"))
+	Simulation.core.fatigue_manager.morale_concern.connect(
+		func(officer_id): _queue_officer_interaction(officer_id, "morale_concern"))
+	officer_interaction_panel.closed.connect(_show_next_officer_interaction)
 
 	_begin_briefing(next_shift_number)
 
@@ -520,6 +536,7 @@ func _begin_briefing(shift_number: int) -> void:
 	unit_panel.close()
 	neighbourhood_panel.close()
 	kpi_panel.close()
+	officer_interaction_panel.close()
 	resources_panel.close()
 	incidents_list_panel.close()
 
@@ -557,6 +574,21 @@ func _refresh_panel_pills() -> void:
 	hud_view.set_panel_active("Res", resources_panel.is_open())
 	hud_view.set_panel_active("Inc", incidents_list_panel.is_open())
 
+func _queue_officer_interaction(officer_id: String, kind: String) -> void:
+	Simulation.core.officer_interaction_manager.enqueue(officer_id, kind)
+	_show_next_officer_interaction()
+
+## Called both right after enqueueing and whenever the pop-up closes, so
+## several officers crossing a threshold in the same tick are shown one at
+## a time rather than lost or stacked.
+func _show_next_officer_interaction() -> void:
+	if officer_interaction_panel.is_open():
+		return
+	if not Simulation.core.officer_interaction_manager.has_pending():
+		return
+	var next: Dictionary = Simulation.core.officer_interaction_manager.pop_next()
+	officer_interaction_panel.open(next["officer_id"], next["kind"])
+
 func _on_shift_ended(summary: Dictionary) -> void:
 	_gameplay_active = false
 	hud_view.hide()
@@ -564,6 +596,7 @@ func _on_shift_ended(summary: Dictionary) -> void:
 	unit_panel.close()
 	neighbourhood_panel.close()
 	kpi_panel.close()
+	officer_interaction_panel.close()
 	resources_panel.close()
 	incidents_list_panel.close()
 
