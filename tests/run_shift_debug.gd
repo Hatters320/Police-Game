@@ -30,11 +30,23 @@ func _init() -> void:
 	_core.fatigue_manager.fatigue_warning.connect(_on_fatigue_warning)
 	_core.tick_completed.connect(_on_tick_completed)
 
-	var roster: Array[Officer] = OfficerFactory.build_shift_roster()
+	# Shift 1 of the duty pattern, exactly as main.gd builds it -- so this
+	# debug run reproduces a real day shift rather than a window that no
+	# longer exists in the game.
+	const SHIFT_NUMBER := 1
+	var roster: Array[Officer] = OfficerFactory.build_shift_roster(
+		DutyPattern.starting_fatigue(SHIFT_NUMBER),
+		DutyPattern.staffing_cut(SHIFT_NUMBER),
+	)
 	var priorities: Array[String] = ["asb", "town_centre_disorder"]
-	var shift_start_minute := 17 * 60 # 17:00
-	var shift_duration_minutes := 12 * 60 # 12h shift -- spec section 15 default
-	_core.start_shift(1, shift_start_minute, shift_duration_minutes, roster, priorities, 2)
+	_core.start_shift(
+		SHIFT_NUMBER,
+		DutyPattern.start_minute(SHIFT_NUMBER),
+		DutyPattern.DURATION_MINUTES,
+		roster,
+		priorities,
+		2,
+	)
 
 	var priorities_text: String = ""
 	for i in range(priorities.size()):

@@ -25,9 +25,17 @@ extends Resource
 ## IncidentProbabilityEngine._weight_for and DistrictState.get_baseline_variable.
 @export var district_weight_factors: Dictionary = {}
 
-## True for types whose rate should rise during evening/night hours (spec
-## section 7/33 -- night-time economy disorder).
-@export var night_weighted: bool = false
+## Time-of-day band name -> rate multiplier, e.g.
+## {"business": 1.6, "evening": 1.0, "overnight": 0.3} for a type that is
+## overwhelmingly a working-hours call. Bands come from
+## IncidentProbabilityEngine._time_band; an unlisted band multiplies by
+## 1.0, so a type with no entries is simply flat across the day.
+##
+## Replaces the old single `night_weighted` bool, which could only express
+## "busier after 21:00" and so couldn't distinguish a shoplifting (a
+## daytime call) from a workplace dispute (daytime) from a burglary
+## (overnight) -- spec section 7/33.
+@export var time_band_multipliers: Dictionary = {}
 
 ## Multiplier applied while it's raining (spec section 34: "weather can
 ## influence... outdoor ASB"). 1.0 (no effect) for types the MVP's weather

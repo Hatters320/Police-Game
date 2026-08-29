@@ -98,9 +98,11 @@ func _icon_for(incident: Incident) -> int:
 	var type_id: String = incident.type_id.to_lower()
 	if type_id.contains("domestic") or type_id.contains("burglary") or type_id.contains("welfare"):
 		return UiIcon.Kind.HOUSE
-	if type_id.contains("shoplifting") or type_id.contains("theft") or type_id.contains("suspicious"):
+	if type_id.contains("shoplifting") or type_id.contains("theft") or type_id.contains("suspicious") \
+			or type_id.contains("fraud") or type_id.contains("vehicle"):
 		return UiIcon.Kind.MAGNIFIER
-	if type_id.contains("assault") or type_id.contains("violence") or type_id.contains("asb") or type_id.contains("disorder"):
+	if type_id.contains("assault") or type_id.contains("violence") or type_id.contains("asb") \
+			or type_id.contains("disorder") or type_id.contains("robbery") or type_id.contains("workplace"):
 		return UiIcon.Kind.HAND
 	return UiIcon.Kind.ALERT
 

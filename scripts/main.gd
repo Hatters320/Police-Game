@@ -11,8 +11,6 @@ extends Node2D
 ## high-frequency data, validated commands in -- never direct state
 ## mutation from here).
 
-const SHIFT_START_MINUTE := 17 * 60 # 17:00
-const SHIFT_DURATION_MINUTES := 12 * 60 # 12h -- spec section 15 default
 
 var map_view: MapView
 var hud_view: HudView
@@ -526,8 +524,19 @@ func _pan_by_screen_delta(relative: Vector2) -> void:
 
 func _begin_briefing(shift_number: int) -> void:
 	_gameplay_active = false
-	var roster: Array[Officer] = OfficerFactory.build_shift_roster()
-	Simulation.core.prepare_shift(shift_number, SHIFT_START_MINUTE, SHIFT_DURATION_MINUTES, roster)
+	# Where this shift sits in the rotating duty pattern decides everything
+	# that differs between a day and a night: start time, how tired the crew
+	# comes on, and how many of them there are (spec section 15).
+	var roster: Array[Officer] = OfficerFactory.build_shift_roster(
+		DutyPattern.starting_fatigue(shift_number),
+		DutyPattern.staffing_cut(shift_number),
+	)
+	Simulation.core.prepare_shift(
+		shift_number,
+		DutyPattern.start_minute(shift_number),
+		DutyPattern.DURATION_MINUTES,
+		roster,
+	)
 	map_view.refresh_units()
 	weather_overlay.refresh() # weather is rolled fresh by prepare_shift -- reflect it immediately
 

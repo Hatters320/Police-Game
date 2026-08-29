@@ -1,8 +1,9 @@
 class_name DayNightOverlay
 extends CanvasLayer
 ## Visual half of the day/night cycle (spec section 33). The gameplay half
-## -- night-time incident weighting -- has existed since Milestone 1 via
-## IncidentTypeDefinition.night_weighted; this is a single full-screen
+## -- how the mix of incident types shifts across the day -- lives in
+## IncidentTypeDefinition.time_band_multipliers and
+## IncidentProbabilityEngine._time_band; this is a single full-screen
 ## tint whose alpha follows time of day. No per-building lighting, since
 ## there's no art to light yet -- see MapView's header comment on where
 ## this build's visuals stand.

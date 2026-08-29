@@ -1684,6 +1684,106 @@ and a second one at exactly 21:01 -- 60 simulated minutes later, to the
 minute -- confirming both the trigger and the cooldown work correctly
 end to end in the real browser, not just headlessly.
 
+### Feature request, phase 3: rotating shifts and time-of-day demand
+
+The third stage of the staged feature rollout, covering the two remaining
+simulation items from the request: the **shift and duty pattern system**
+and **dynamic, time-based incident generation**. Both hang off the clock,
+which is why they were built together.
+
+*A real duty pattern.* Every shift previously started at 17:00, hardcoded
+in `main.gd` -- so the player never actually saw a day shift, and the
+briefing's "SHIFT 2" was the same twelve hours as SHIFT 1. Added
+`DutyPattern` (a stateless helper matching `IncidentProbabilityEngine`'s
+engine-class shape), which turns a shift number into everything that
+differs between the two halves of the cycle: two day shifts (07:00-19:00),
+then two nights (19:00-07:00), repeating. `main.gd` no longer hardcodes
+anything about shift timing. Verified headlessly across shifts 1-8: the
+cycle is exactly Day, Day, Night, Night, Day, Day, Night, Night with the
+right start and end times every time.
+
+*Nights are genuinely thinner.* `OfficerFactory.build_shift_roster()`
+gained two optional arguments carrying the pattern. On nights the roster
+drops from 12 to 10 -- landing exactly on the establishment's own stated
+`MINIMUM_STAFFING`, and taking the two least-deployable officers (neither
+driver-qualified) rather than an arbitrary slice. Measured through the
+real `SimulationCore`: a day shift fields **6 patrol cars**, a night shift
+**5**. That is a real operational constraint, not a cosmetic label.
+
+*Fatigue follows the cycle -- and what that actually means here.*
+Officers now come on shift already carrying fatigue: 0 on the first day,
+10 on the second, 8 on the first night, 20 on the second. Stated plainly
+rather than oversold: `OfficerFactory` builds brand-new `Officer` objects
+every shift, so fatigue genuinely does **not** persist between shifts in
+this build, and real carry-over would need per-officer save/load well
+beyond this phase. This models the *shape* the duty cycle is known to
+produce -- nights cost more sleep, and the second of a pair lands on a
+crew that has not recovered from the first -- as a deliberate proxy, not
+as simulated history.
+
+*Time-of-day incident types.* The old model was a single `night_weighted`
+bool gating a flat x1.6 after 21:00. That could only express "busier at
+night", so it could not tell a shoplifting (a daytime call) apart from a
+burglary (an overnight one). Replaced with
+`IncidentTypeDefinition.time_band_multipliers` and a three-band
+`IncidentProbabilityEngine._time_band()`: **business** (07:00-19:00),
+**evening** (19:00-23:00), **overnight** (23:00-07:00) -- boundaries that
+line up with the duty pattern, so a day shift is entirely "business" and a
+night shift runs four evening hours then eight overnight.
+
+*Six new incident types*, taking the roster from 5 to 11, so the three
+bands have something to actually differ in: `fraud` and
+`workplace_incident` (business hours), `alcohol_disorder` (evening),
+`robbery`, `vehicle_crime` and `suspicious_activity` (overnight). All pure
+data, per `IncidentTypeDefinition`'s own instruction that a new type
+"should mean a new instance of this (data), never new code". `vehicle_crime`
+is worth a note: `DistrictState` has carried a `vehicle_crime_risk`
+variable since Milestone 1 that no incident type read -- it now finally
+drives something.
+
+*The volume was measured, not guessed.* Going from 5 types to 11 would
+have roughly doubled call volume if the rates had been left alone. The
+existing global `RATE_MULTIPLIER` was itself tuned by measurement in an
+earlier round, so it was left alone and the rebalance was done per type
+instead, against a headless model of expected calls per hour across a full
+simulated day:
+
+| | before | after |
+|---|---|---|
+| day shift (07:00-19:00) | -- | **17.6 calls** |
+| night shift (19:00-07:00) | -- | **21.1 calls** |
+| old 17:00-05:00 shift | **20.0 calls** | 20.7 |
+
+So the player gets about the same amount of work per shift as before
+(-12% on days, +5% on nights against the old 20.0 baseline), with the
+*mix* changing rather than the volume exploding. The mix genuinely does
+change: business hours are led by shoplifting, fraud and workplace
+incidents; evenings by ASB, alcohol-related disorder, assault and
+domestics; overnight by vehicle crime, burglary and suspicious activity.
+
+*Verified in the real browser*, not just headlessly: the briefing reads
+"SHIFT 1 BRIEFING -- DAY", the shift starts at 07:01 and ends 19:00, the
+town is in daylight (previously it opened at dusk), and the dispatch queue
+filled with a day-shift mix. A separate headless run of the same day
+window produced shoplifting on the high street and workplace incidents at
+the industrial estate, against overnight ASB, vehicle crime and suspicious
+activity in the night window. Zero console errors across the full session.
+FPS measured back-to-back in the same session, before and after: 1.215 ->
+1.243 -- unchanged within noise (and, per the standing caveat in this
+file, the ~1.2 absolute figure is the software-WebGL sandbox, not a real
+device). The `_icon_for` mapping in the dispatch queue was extended so the
+six new types get sensible glyphs instead of all falling through to the
+generic alert triangle.
+
+Also fixed in passing: `tests/run_shift_debug.gd` still hardcoded the old
+17:00 start, so the debug harness would have been reproducing a shift
+window that no longer exists in the game. It now builds shift 1 through
+`DutyPattern` exactly as `main.gd` does.
+
+Not built in this phase, still open from the request: the environment and
+atmosphere work (dynamic lighting by time of day, seasonal weather) and
+the briefing/debriefing screen redesign.
+
 Not built: real art assets. Everything drawn above is still flat-colour
 primitives, just arranged more deliberately toward the spec's
 "SimCity-style" target (section 2) than the original placeholder shapes

@@ -47,7 +47,7 @@ func setup(world: WorldMapData, shift_number: int) -> void:
 	content.add_theme_constant_override("separation", 18)
 	scroll.add_child(content)
 
-	_add_title(content, "SHIFT %d BRIEFING" % _shift_number)
+	_add_title(content, "SHIFT %d BRIEFING -- %s" % [_shift_number, DutyPattern.label(_shift_number).to_upper()])
 	_add_staffing_section(content)
 	_add_text_section(content, "INTELLIGENCE", _gather_intelligence())
 	_add_text_section(content, "COMMUNITY ISSUES", BriefingContentFactory.community_issues())

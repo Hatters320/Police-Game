@@ -86,8 +86,7 @@ static func _weight_for(
 		# Weighted off deviation from this district's own normal, not a
 		# universal midpoint -- see DistrictState.get_baseline_variable.
 		rate *= 1.0 + ((value - baseline) / 50.0) * factor
-	if type_def.night_weighted and _is_night(current_minute):
-		rate *= 1.6
+	rate *= float(type_def.time_band_multipliers.get(_time_band(current_minute), 1.0))
 	if weather == GameEnums.WeatherType.RAIN:
 		rate *= type_def.rain_multiplier
 	for event in active_events:
@@ -95,9 +94,18 @@ static func _weight_for(
 			rate *= event.incident_weight_multiplier
 	return maxf(rate, 0.0)
 
-static func _is_night(current_minute: int) -> bool:
+## Which of the three demand bands the town is in. The boundaries line up
+## with the duty pattern (DutyPattern): a 07:00-19:00 day shift is entirely
+## "business", and a 19:00-07:00 night shift runs four hours of "evening"
+## then eight of "overnight". Spec section 7/33: what gets reported at
+## 10:00 is not what gets reported at 03:00.
+static func _time_band(current_minute: int) -> String:
 	var hour: int = (current_minute % (24 * 60)) / 60
-	return hour >= 21 or hour < 5
+	if hour >= 7 and hour < 19:
+		return "business"
+	if hour >= 19 and hour < 23:
+		return "evening"
+	return "overnight"
 
 ## Applies random variance around the type's base priority inputs and
 ## derives a 1-5 priority band from combined severity. Spec section 24 is
