@@ -2033,22 +2033,49 @@ the sun sweeps continuously. The screen tint follows the same fractional
 value, so the two fade together instead of one stepping while the other
 sweeps.
 
-*Measured, not eyeballed.* New `tests/capture_weather.gd` forces each
-weather type, captures two frames a short interval apart and reports how
-much of the screen actually changed between them:
+*Then a second pass, because the fog was wrong.* The first version drew
+fog as wide flat `draw_rect` bands. Every band had a hard top and bottom
+edge, so on a real phone it read as exactly what it was -- "the fog just
+looks like lines across the screen". Fog is now soft radial blobs drawn
+from a `GradientTexture2D` (white core falling to fully transparent at the
+rim), 16 of them, very large and heavily overlapping, drifting sideways
+with a slow vertical bob and a gentle alpha breath. There is no hard edge
+anywhere in it.
 
-| | frame-to-frame change |
-|---|---|
-| clear (baseline: traffic only) | 0.32% |
-| rain | 3.78% |
-| snow | 2.50% |
-| fog | 1.09% |
+The same pass added *depth* to all three, which is most of what makes
+falling weather look three-dimensional: every particle carries a 0-1
+depth driving its size, speed and alpha together, so near rain is long,
+fast, thick and bright while distant rain is short, slow, thin and faint,
+instead of one flat sheet of identical strokes. Snowflakes moved from hard
+`draw_circle` discs to the same soft blob texture -- at flake size a crisp
+circle reads as a dot of UI, not snow.
 
-The first pass drew correctly but read as too faint once a full frame was
-viewed rather than a zoomed crop, so drop count and alpha were raised and
-the capture re-run. The same harness sweeps the clock across a day and
-captures the light at each hour -- 06:00 renders as pre-dawn dark and
-13:00 as full midday, on the same spring shift.
+*Measured, not eyeballed.* `tests/capture_weather.gd` forces each weather
+type and reports how much of the screen changes over two intervals. Two
+are needed because the effects move at wildly different speeds -- a single
+short interval makes fog look static when it is not:
+
+| | over 0.35s | over 2.15s |
+|---|---|---|
+| clear (noise floor: the town's own traffic) | 0.31% | 5.62% |
+| rain | 3.34% | 3.92% |
+| snow | 5.47% | 6.32% |
+| fog | 0.13% | 24.87% |
+
+Fog barely changing frame to frame is the correct result, not a failure:
+it drifts a few pixels a second. Over two seconds it transforms. The
+"clear" row is the honest baseline -- the traffic and pedestrians animate
+regardless of weather, so these are read against that, not against zero.
+
+The same harness measures the frame cost of each weather type directly,
+because the browser FPS A/B can only sample whatever weather happened to
+roll, and fog -- the most expensive, with much the largest draws -- is
+also the rarest: clear 6.2 fps, rain 6.5, snow 6.6, fog 6.2. No
+measurable cost from any of them.
+
+It also sweeps the clock across a day and captures the light at each hour
+-- 06:00 renders as pre-dawn dark and 13:00 as full midday, on the same
+spring shift.
 
 FPS A/B in the same session: 0.958 / 0.943 before against 0.966 after --
 no regression from either the per-frame lighting or the particles.

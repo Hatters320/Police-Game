@@ -36,9 +36,40 @@ func _ready() -> void:
 		var a: Image = await _grab()
 		await get_tree().create_timer(0.35).timeout
 		var b: Image = await _grab()
+		await get_tree().create_timer(1.8).timeout
+		var c: Image = await _grab()
 		a.save_png("%s/%s_a.png" % [OUT, pair[1]])
 		b.save_png("%s/%s_b.png" % [OUT, pair[1]])
-		print("%-6s frame-to-frame change: %.3f%% of pixels" % [pair[1], _diff_percent(a, b)])
+		# Two intervals, because the three effects move at wildly different
+		# speeds: rain crosses the screen in under a second while fog drifts
+		# a few pixels, so a single short interval would understate fog to
+		# the point of looking static when it is not. The town's own traffic
+		# animates regardless of weather, so "clear" is the noise floor
+		# these are read against, not zero.
+		print("%-6s change over 0.35s: %5.2f%%   over 2.15s: %5.2f%%" % [
+			pair[1], _diff_percent(a, b), _diff_percent(a, c)])
+
+	# Per-weather frame cost. The browser FPS A/B can only measure whatever
+	# weather happened to roll that shift, and fog -- the most expensive of
+	# the three, since its blobs are very large -- is also the rarest. This
+	# forces each in turn and counts real frames over a fixed wall-clock
+	# window, so the costs are directly comparable.
+	for pair in [
+		[GameEnums.WeatherType.CLEAR, "clear"],
+		[GameEnums.WeatherType.RAIN, "rain"],
+		[GameEnums.WeatherType.SNOW, "snow"],
+		[GameEnums.WeatherType.FOG, "fog"],
+	]:
+		Simulation.core.weather_manager.current_weather = pair[0]
+		_main.weather_overlay.refresh()
+		await get_tree().create_timer(0.5).timeout
+		var frames := 0
+		var started: int = Time.get_ticks_msec()
+		while Time.get_ticks_msec() - started < 4000:
+			await get_tree().process_frame
+			frames += 1
+		var elapsed: float = float(Time.get_ticks_msec() - started) / 1000.0
+		print("%-6s %.1f fps (%d frames in %.1fs)" % [pair[1], frames / elapsed, frames, elapsed])
 
 	# Dawn sweep: same shift, clock walked across sunrise.
 	Simulation.core.weather_manager.current_weather = GameEnums.WeatherType.CLEAR
