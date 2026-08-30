@@ -87,4 +87,14 @@ enum NeighbourhoodStatus {
 
 ## Spec section 34: "MVP may include: clear, rain" -- deliberately no
 ## detailed weather simulation beyond these two states.
-enum WeatherType { CLEAR, RAIN }
+## Shift-constant weather (spec section 34: "MVP may include: clear,
+## rain... do not build detailed weather simulation"). FOG and SNOW were
+## added with the seasonal system -- still rolled once per shift and still
+## shallow, they just give autumn and winter a face of their own.
+enum WeatherType { CLEAR, RAIN, FOG, SNOW }
+
+## Which season the town is in. Derived from the shift number by
+## SeasonCycle -- it drives daylight hours, the weather roll, and a few
+## incident types' rates, so a winter night shift is a different job from
+## a summer one.
+enum Season { SPRING, SUMMER, AUTUMN, WINTER }

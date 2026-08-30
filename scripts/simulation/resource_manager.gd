@@ -102,8 +102,7 @@ func _advance_travel(unit: PoliceUnit, ctx: SimulationContext) -> void:
 	# reduction stands in for wet-road congestion without simulating actual
 	# traffic (see WeatherManager).
 	var speed: float = BASE_SPEED_UNITS_PER_MIN
-	if ctx.weather_manager.is_raining():
-		speed *= WeatherManager.RAIN_TRAVEL_SPEED_MULTIPLIER
+	speed *= ctx.weather_manager.travel_speed_multiplier()
 	var arrived: bool = unit.advance_along_path(speed * ctx.dt_minutes)
 	if not arrived:
 		return

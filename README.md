@@ -1784,6 +1784,100 @@ Not built in this phase, still open from the request: the environment and
 atmosphere work (dynamic lighting by time of day, seasonal weather) and
 the briefing/debriefing screen redesign.
 
+### Feature request, phase 4: environment and atmosphere
+
+The request asked for "dynamic lighting based on time of day", "seasonal
+weather systems", and for "visuals, atmosphere, and incident types" to
+reflect both season and time. All three, built on top of phase 3's
+rotating shifts.
+
+*Real lighting, not a blue rectangle.* The day/night cycle used to be one
+flat `ColorRect` faded to 42% alpha across the whole screen. That had two
+real faults: it dimmed the HUD and incident markers along with the town,
+and it could only ever show "day" or "blue" -- never a sunrise. Meanwhile
+`City3DView` had an actual `DirectionalLight3D` and `WorldEnvironment`
+sitting there completely static. New `DaylightModel` (stateless, like the
+other engine classes) now drives both every simulated minute: sun
+elevation and azimuth swing across the sky, the sun's colour runs warm at
+the horizon and near-white overhead, ambient light and the sky colour
+follow, and the screen tint survives only as a light 12%-max wash to stop
+the 2D markers floating over a dark city. Verified in the real browser
+across a live shift: 07:01 opens dim and low-lit, 08:04 is brighter, 09:08
+brighter again, 12:32 is full midday. Dusk was confirmed numerically
+rather than visually -- reaching 19:00 in a browser at the available
+speed took longer than a practical session, so what was checked on screen
+is the morning half of the arc plus the model's own values across all 24
+hours.
+
+*Seasons.* New `SeasonCycle`, derived from the shift number exactly like
+`DutyPattern` so it needs no new persistence. A season lasts 8 shifts;
+what it changes is daylight:
+
+| | sunrise | sunset | daylight |
+|---|---|---|---|
+| Spring | 06:30 | 19:30 | 13.0h |
+| Summer | 05:00 | 21:30 | 16.5h |
+| Autumn | 07:00 | 18:30 | 11.5h |
+| Winter | 08:00 | 16:30 | 8.5h |
+
+That is the point of the whole system: the shift times never change, but a
+07:00 day shift in summer starts in broad daylight and the same shift in
+winter starts *and* finishes in the dark.
+
+*Seasonal weather.* `WeatherType` gains FOG and SNOW, still rolled once per
+shift and still shallow -- the spec's "do not build detailed weather
+simulation" line hasn't been broken. What's new is that the roll is
+season-weighted, measured over 2000 shifts each:
+
+| | clear | rain | fog | snow |
+|---|---|---|---|---|
+| Spring | 63% | 30% | 7% | -- |
+| Summer | 80% | 18% | 2% | -- |
+| Autumn | 50% | 34% | 17% | -- |
+| Winter | 44% | 29% | 12% | 15% |
+
+Each type now carries its own travel-speed penalty (snow x0.65, fog x0.78,
+rain x0.85) and its own screen wash. Rather than inventing a suppression
+number per incident type per weather, weather *scales the type's existing*
+`rain_multiplier` -- rain applies it in full, fog at half, snow harder than
+rain -- so the eleven types needed no new data for this at all.
+
+*Incident types reflect the season.* Added `season_multipliers` alongside
+phase 3's `time_band_multipliers`, populated only where there's a real
+reason rather than inventing a number per type per season: burglary rises
+in winter (dark by teatime), ASB and alcohol-related disorder in summer,
+domestics in winter, vehicle crime in the long dark evenings.
+
+*Volume, measured again.* Same discipline as phase 3 -- the global
+`RATE_MULTIPLIER` was left alone and the effect measured instead:
+
+| season | day shift | night shift |
+|---|---|---|
+| Spring | 17.6 | 21.1 |
+| Summer | 18.3 | 23.6 |
+| Autumn | 17.7 | 21.5 |
+| Winter | 19.1 | 21.5 |
+
+Stated honestly: the summer night shift at 23.6 calls is about 18% above
+the long-standing 20.0 baseline, slightly wider than the +/-15% band phase
+3 held to. That is deliberate and left in -- a summer Friday night being
+the busiest shift of the year is the seasonal system doing its job, and
+flattening it would defeat the purpose. Adverse weather pulls it back
+anyway (the same shift in rain is 20.6, in snow 19.6).
+
+FPS measured back-to-back against the phase 3 build in the same session:
+1.255 -> 1.252, unchanged within noise. The lighting update is six
+property writes once per simulated minute, not per frame. Zero console
+errors across the full browser session.
+
+Also tidied: `WeatherManager.RAIN_TRAVEL_SPEED_MULTIPLIER` was a single
+rain-only constant read from two places; both now ask the manager for the
+current weather's multiplier, and the stale constant is gone rather than
+left to rot beside the per-weather table that replaced it.
+
+Not built in this phase, and the last item still open from the request:
+the briefing and debriefing screen redesign.
+
 Not built: real art assets. Everything drawn above is still flat-colour
 primitives, just arranged more deliberately toward the spec's
 "SimCity-style" target (section 2) than the original placeholder shapes

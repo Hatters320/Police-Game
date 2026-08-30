@@ -1,14 +1,24 @@
 class_name DayNightOverlay
 extends CanvasLayer
-## Visual half of the day/night cycle (spec section 33). The gameplay half
-## -- how the mix of incident types shifts across the day -- lives in
-## IncidentTypeDefinition.time_band_multipliers and
-## IncidentProbabilityEngine._time_band; this is a single full-screen
-## tint whose alpha follows time of day. No per-building lighting, since
-## there's no art to light yet -- see MapView's header comment on where
-## this build's visuals stand.
+## Screen-space companion to the real day/night lighting (spec section 33).
+##
+## This used to *be* the day/night cycle: one flat blue ColorRect faded to
+## 42% alpha over the whole screen. That had two problems -- it dimmed the
+## HUD and the incident markers along with the town, and it could never
+## show a sunrise, only "day" or "blue". The lighting proper now lives in
+## DaylightModel, driving City3DView's real DirectionalLight3D and
+## WorldEnvironment, so dawn actually rakes across the buildings.
+##
+## What survives here is a much lighter tint that does one job the 3D
+## lighting can't: cooling the *2D* layer (roads, markers, labels drawn
+## over the town) at night so it doesn't float over a dark city looking
+## lit from nowhere. Hence the alpha ceiling is now a fifth of what it was.
+##
+## The gameplay half -- how the mix of incident types shifts across the day
+## and the year -- lives in IncidentTypeDefinition.time_band_multipliers /
+## season_multipliers and IncidentProbabilityEngine.
 
-const NIGHT_ALPHA := 0.42
+const NIGHT_ALPHA := 0.12
 const TINT_COLOR := Color(0.05, 0.05, 0.2)
 
 var _tint: ColorRect
@@ -23,17 +33,11 @@ func _ready() -> void:
 	Simulation.core.tick_completed.connect(_refresh)
 	_refresh()
 
+## Tracks the same daylight curve the 3D lighting uses, so the two never
+## disagree about when dusk is -- and so the tint follows the *season*:
+## a 17:00 winter shift is already dark, a 17:00 summer one is not.
 func _refresh() -> void:
 	var minute_of_day: int = Simulation.core.game_clock.total_minutes % (24 * 60)
-	_tint.color = Color(TINT_COLOR, _alpha_for_minute(minute_of_day))
-
-## 07:00-18:00 full daylight, 18:00-20:00 dusk fading in, 20:00-05:00
-## night at full tint, 05:00-07:00 dawn fading out.
-func _alpha_for_minute(m: int) -> float:
-	if m >= 420 and m < 1080:
-		return 0.0
-	if m >= 1080 and m < 1200:
-		return lerpf(0.0, NIGHT_ALPHA, float(m - 1080) / 120.0)
-	if m >= 1200 or m < 300:
-		return NIGHT_ALPHA
-	return lerpf(NIGHT_ALPHA, 0.0, float(m - 300) / 120.0)
+	var season: GameEnums.Season = Simulation.core.current_season()
+	var darkness: float = 1.0 - DaylightModel.daylight_factor(minute_of_day, season)
+	_tint.color = Color(TINT_COLOR, NIGHT_ALPHA * darkness)

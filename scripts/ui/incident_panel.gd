@@ -314,8 +314,7 @@ func _add_available_units_block(incident: Incident) -> void:
 func _ranked_available_units(incident: Incident, location: LocationDefinition, type_def: IncidentTypeDefinition) -> Array[Dictionary]:
 	var road_graph: RoadGraph = Simulation.core.road_graph
 	var speed: float = ResourceManager.BASE_SPEED_UNITS_PER_MIN
-	if Simulation.core.weather_manager.is_raining():
-		speed *= WeatherManager.RAIN_TRAVEL_SPEED_MULTIPLIER
+	speed *= Simulation.core.weather_manager.travel_speed_multiplier()
 	var candidates: Array[Dictionary] = []
 	for unit: PoliceUnit in Simulation.core.resource_manager.units.values():
 		if unit.status == GameEnums.UnitStatus.ON_BREAK or unit.status == GameEnums.UnitStatus.UNAVAILABLE:

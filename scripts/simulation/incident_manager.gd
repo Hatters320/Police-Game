@@ -125,7 +125,8 @@ func apply_shift_handover() -> void:
 func _maybe_generate_incident(ctx: SimulationContext) -> void:
 	var pick: Dictionary = IncidentProbabilityEngine.roll_for_incident(
 		_type_defs_list, ctx.district_manager.districts, ctx.event_manager.active_events(),
-		ctx.current_minute, ctx.dt_minutes, ctx.rng, ctx.weather_manager.current_weather
+		ctx.current_minute, ctx.dt_minutes, ctx.rng, ctx.weather_manager.current_weather,
+		ctx.season
 	)
 	if pick.is_empty():
 		return

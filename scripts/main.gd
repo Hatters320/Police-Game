@@ -539,6 +539,7 @@ func _begin_briefing(shift_number: int) -> void:
 	)
 	map_view.refresh_units()
 	weather_overlay.refresh() # weather is rolled fresh by prepare_shift -- reflect it immediately
+	city_3d.refresh_lighting() # season/weather change at a shift boundary, and the clock isn't ticking yet
 
 	hud_view.hide()
 	incident_panel.close()

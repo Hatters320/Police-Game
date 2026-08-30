@@ -479,6 +479,8 @@ const PARK_ZONE_SIZE := 3
 const PARK_TREE_CHANCE := 0.6
 const LAKE_RADIUS := 1.2
 
+var _sun: DirectionalLight3D
+var _environment: Environment
 var _world: WorldMapData
 var _mesh_cache: Dictionary = {} # path -> Mesh
 var _grid_map: GridMap
@@ -573,22 +575,41 @@ func build(world: WorldMapData) -> void:
 ## scene that set up its own light, never carried over into the real
 ## City3DView. Shadows stay off -- a real cost on the mobile Web
 ## gl_compatibility target for a presentation layer that doesn't need them.
+##
+## The sun and environment are kept as fields and re-driven every tick from
+## DaylightModel, so time of day and season are real lighting rather than a
+## flat blue rectangle over the screen.
 func _build_lighting() -> void:
-	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.55, 0.75, 0.95)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.65, 0.68, 0.78)
-	env.ambient_light_energy = 0.6
+	_environment = Environment.new()
+	_environment.background_mode = Environment.BG_COLOR
+	_environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	var world_env := WorldEnvironment.new()
-	world_env.environment = env
+	world_env.environment = _environment
 	add_child(world_env)
 
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55.0, -35.0, 0.0)
-	sun.light_energy = 1.15
-	sun.shadow_enabled = false
-	add_child(sun)
+	_sun = DirectionalLight3D.new()
+	_sun.shadow_enabled = false
+	add_child(_sun)
+
+	Simulation.core.tick_completed.connect(refresh_lighting)
+	refresh_lighting()
+
+## Pushes the current minute/season/weather into the real light and sky.
+## Called every simulated minute (cheap: four property writes, no
+## allocation, no per-frame work) and explicitly at shift start, since
+## weather is rolled once per shift rather than ticking.
+func refresh_lighting() -> void:
+	if _sun == null or _environment == null:
+		return
+	var minute: int = Simulation.core.game_clock.total_minutes % (24 * 60)
+	var season: GameEnums.Season = Simulation.core.current_season()
+	var weather: GameEnums.WeatherType = Simulation.core.weather_manager.current_weather
+	_sun.rotation_degrees = DaylightModel.sun_rotation_degrees(minute, season)
+	_sun.light_color = DaylightModel.sun_color(minute, season)
+	_sun.light_energy = DaylightModel.sun_energy(minute, season)
+	_environment.ambient_light_color = DaylightModel.ambient_color(minute, season)
+	_environment.ambient_light_energy = DaylightModel.ambient_energy(minute, season)
+	_environment.background_color = DaylightModel.sky_color(minute, season, weather)
 
 func world_to_3d(pos: Vector2) -> Vector3:
 	return Vector3(pos.x * WORLD_SCALE, 0.0, pos.y * WORLD_SCALE)

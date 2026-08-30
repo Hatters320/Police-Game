@@ -37,6 +37,13 @@ extends Resource
 ## (overnight) -- spec section 7/33.
 @export var time_band_multipliers: Dictionary = {}
 
+## GameEnums.Season -> rate multiplier, same shape as
+## time_band_multipliers and read the same way (an unlisted season
+## multiplies by 1.0). Only populated where there is a real seasonal
+## reason -- dark winter evenings for burglary, summer streets for
+## disorder -- rather than inventing a number per type per season.
+@export var season_multipliers: Dictionary = {}
+
 ## Multiplier applied while it's raining (spec section 34: "weather can
 ## influence... outdoor ASB"). 1.0 (no effect) for types the MVP's weather
 ## system doesn't model -- see WeatherManager.

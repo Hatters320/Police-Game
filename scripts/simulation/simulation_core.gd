@@ -99,10 +99,17 @@ func prepare_shift(shift_number: int, start_minute: int, duration_minutes: int, 
 	resource_manager.form_units(officer_manager.available_officers(), station)
 	shift_manager.prepare_shift(shift_number, start_minute, duration_minutes)
 	specialist_manager.setup_shift(rng)
-	weather_manager.setup_shift(rng)
+	weather_manager.setup_shift(rng, SeasonCycle.season_for_shift(shift_number))
 	kpi_tracker.reset_shift()
 	supervisor_feedback_manager.reset_shift()
 	game_clock.total_minutes = start_minute
+
+## Which season the town is in, derived from the current shift number
+## (SeasonCycle). Exposed here because the season is read by the lighting,
+## the weather roll and the incident engine, and none of them should be
+## re-deriving it from the shift manager themselves.
+func current_season() -> GameEnums.Season:
+	return SeasonCycle.season_for_shift(shift_manager.shift_state.shift_number)
 
 ## Confirms the briefing (spec section 16's "confirm the shift plan") --
 ## the clock starts ticking from this point on.
@@ -148,6 +155,7 @@ func fast_forward_shift() -> void:
 func _tick_sim(dt_minutes: int) -> void:
 	ctx.dt_minutes = dt_minutes
 	ctx.current_minute = game_clock.total_minutes
+	ctx.season = current_season()
 	shift_manager.advance(ctx)
 	district_manager.tick(ctx)
 	event_manager.tick(ctx)

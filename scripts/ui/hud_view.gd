@@ -353,11 +353,16 @@ func refresh_stats() -> void:
 	_time_label.text = "%s (ends %s)" % [
 		shift.time_of_day_string(), TimeFormat.clock(shift.shift_end_minute),
 	]
-	var raining: bool = core.weather_manager.is_raining()
+	# Any adverse weather gets the cold accent and the rain glyph -- there
+	# are no dedicated fog/snow icons in UiIcon, and inventing two more
+	# hand-drawn glyphs for a one-word chip isn't worth it; the label
+	# already says which it is.
+	var adverse: bool = core.weather_manager.is_adverse()
+	var weather_color: Color = Color(0.6, 0.75, 0.95) if adverse else UiTheme.TEXT_PRIMARY
 	_weather_label.text = core.weather_manager.weather_text().to_upper()
-	_weather_label.add_theme_color_override("font_color", Color(0.6, 0.75, 0.95) if raining else UiTheme.TEXT_PRIMARY)
-	_weather_icon.kind = UiIcon.Kind.RAIN if raining else UiIcon.Kind.CLEAR
-	_weather_icon.set_icon_color(Color(0.6, 0.75, 0.95) if raining else UiTheme.TEXT_DIM)
+	_weather_label.add_theme_color_override("font_color", weather_color)
+	_weather_icon.kind = UiIcon.Kind.RAIN if adverse else UiIcon.Kind.CLEAR
+	_weather_icon.set_icon_color(weather_color if adverse else UiTheme.TEXT_DIM)
 
 	var available_count: int = core.resource_manager.available_units().size()
 	_units_label.text = "%d AVAILABLE" % available_count

@@ -42,14 +42,15 @@ static func roll_for_incident(
 	current_minute: int,
 	dt_minutes: float,
 	rng: RandomNumberGenerator,
-	weather: GameEnums.WeatherType = GameEnums.WeatherType.CLEAR
+	weather: GameEnums.WeatherType = GameEnums.WeatherType.CLEAR,
+	season: GameEnums.Season = GameEnums.Season.SPRING
 ) -> Dictionary:
 	var weights: Dictionary = {} # "type_id|district_id" -> weight (expected/hour)
 	var total_weight := 0.0
 	for type_def in type_defs:
 		for district_id in district_states.keys():
 			var district: DistrictState = district_states[district_id]
-			var w: float = _weight_for(type_def, district, active_events, current_minute, weather)
+			var w: float = _weight_for(type_def, district, active_events, current_minute, weather, season)
 			if w <= 0.0:
 				continue
 			var key: String = "%s|%s" % [type_def.id, district_id]
@@ -76,7 +77,8 @@ static func _weight_for(
 	district: DistrictState,
 	active_events: Array[EventDefinition],
 	current_minute: int,
-	weather: GameEnums.WeatherType = GameEnums.WeatherType.CLEAR
+	weather: GameEnums.WeatherType = GameEnums.WeatherType.CLEAR,
+	season: GameEnums.Season = GameEnums.Season.SPRING
 ) -> float:
 	var rate: float = type_def.base_rate_per_hour
 	for variable_name in type_def.district_weight_factors.keys():
@@ -87,8 +89,14 @@ static func _weight_for(
 		# universal midpoint -- see DistrictState.get_baseline_variable.
 		rate *= 1.0 + ((value - baseline) / 50.0) * factor
 	rate *= float(type_def.time_band_multipliers.get(_time_band(current_minute), 1.0))
-	if weather == GameEnums.WeatherType.RAIN:
-		rate *= type_def.rain_multiplier
+	rate *= float(type_def.season_multipliers.get(season, 1.0))
+	# Weather scales the type's own declared outdoor sensitivity rather
+	# than needing a separate number per type per weather: rain applies it
+	# in full, fog at half, snow harder than rain. A type with no outdoor
+	# behaviour has rain_multiplier 1.0 and is untouched either way.
+	var suppression: float = WeatherManager.OUTDOOR_SUPPRESSION_STRENGTH.get(weather, 0.0)
+	if suppression > 0.0 and not is_equal_approx(type_def.rain_multiplier, 1.0):
+		rate *= lerpf(1.0, type_def.rain_multiplier, suppression)
 	for event in active_events:
 		if event.affects_district(district.district_id):
 			rate *= event.incident_weight_multiplier

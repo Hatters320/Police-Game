@@ -7,6 +7,10 @@ extends RefCounted
 
 var dt_minutes: int = 0
 var current_minute: int = 0
+## Which season the town is in this shift (SeasonCycle). Refreshed each
+## tick alongside current_minute, so managers read it the same way rather
+## than re-deriving it from the shift number themselves.
+var season: GameEnums.Season = GameEnums.Season.SPRING
 
 var world: WorldMapData
 var road_graph: RoadGraph

@@ -45,6 +45,8 @@ static func _shoplifting() -> IncidentTypeDefinition:
 	def.district_weight_factors = {"theft_risk": 0.8, "police_visibility": -0.4}
 	# A shop-floor theft is reported while the shop is open.
 	def.time_band_multipliers = {"business": 1.6, "evening": 1.0, "overnight": 0.3}
+	# Retail theft climbs through the winter shopping season.
+	def.season_multipliers = {GameEnums.Season.WINTER: 1.25}
 	def.possible_outcomes = [
 		{"id": "offender_detained", "display_name": "Offender detained", "base_weight": 3.0, "favoured_skill": "response", "favoured_intent": GameEnums.CommandIntent.RESPOND},
 		{"id": "offender_left_scene", "display_name": "Offender had left before arrival", "base_weight": 2.0},
@@ -74,6 +76,8 @@ static func _asb() -> IncidentTypeDefinition:
 	def.district_weight_factors = {"asb": 1.0, "night_economy": 0.5, "police_visibility": -0.5}
 	# Street disorder builds through the evening and carries into the night.
 	def.time_band_multipliers = {"business": 0.5, "evening": 1.6, "overnight": 1.2}
+	# Street disorder is a warm-evenings problem; nobody loiters in January.
+	def.season_multipliers = {GameEnums.Season.SUMMER: 1.35, GameEnums.Season.WINTER: 0.7}
 	def.rain_multiplier = 0.6 # spec section 34: less outdoor loitering/gathering in the rain
 	def.possible_outcomes = [
 		{"id": "group_dispersed", "display_name": "Group dispersed", "base_weight": 3.0, "favoured_intent": GameEnums.CommandIntent.RESOLVE},
@@ -104,6 +108,8 @@ static func _burglary() -> IncidentTypeDefinition:
 	def.district_weight_factors = {"burglary_risk": 1.0, "police_visibility": -0.3}
 	# Break-ins cluster overnight, when premises are empty and unwatched.
 	def.time_band_multipliers = {"business": 0.6, "evening": 1.0, "overnight": 1.8}
+	# Dark by teatime in winter -- the classic burglary season.
+	def.season_multipliers = {GameEnums.Season.WINTER: 1.3, GameEnums.Season.AUTUMN: 1.15, GameEnums.Season.SUMMER: 0.85}
 	def.possible_outcomes = [
 		{"id": "suspect_identified", "display_name": "Suspect identified", "base_weight": 1.5, "favoured_skill": "investigation", "favoured_intent": GameEnums.CommandIntent.LOCATE},
 		{"id": "evidence_gathered", "display_name": "Evidence gathered", "base_weight": 2.0, "favoured_skill": "investigation"},
@@ -134,6 +140,8 @@ static func _assault() -> IncidentTypeDefinition:
 	def.district_weight_factors = {"violence": 1.0, "night_economy": 0.6}
 	# Violence tracks the night-time economy: peaks as venues fill and empty.
 	def.time_band_multipliers = {"business": 0.5, "evening": 1.6, "overnight": 1.3}
+	# Longer, warmer evenings put more people outside drinking.
+	def.season_multipliers = {GameEnums.Season.SUMMER: 1.25}
 	def.possible_outcomes = [
 		{"id": "arrest_made", "display_name": "Arrest made", "base_weight": 2.0, "favoured_skill": "response", "favoured_intent": GameEnums.CommandIntent.RESPOND},
 		{"id": "parties_separated", "display_name": "Parties separated", "base_weight": 2.5, "favoured_intent": GameEnums.CommandIntent.CONTAIN},
@@ -164,6 +172,8 @@ static func _domestic() -> IncidentTypeDefinition:
 	def.district_weight_factors = {"community_tension": 0.4, "vulnerability": 0.6}
 	# Domestics peak in the evening once households are back together.
 	def.time_band_multipliers = {"business": 0.5, "evening": 1.7, "overnight": 1.2}
+	# Households pressed together indoors through the winter months.
+	def.season_multipliers = {GameEnums.Season.WINTER: 1.2}
 	def.possible_outcomes = [
 		{"id": "arrest_made", "display_name": "Arrest made", "base_weight": 1.5, "favoured_intent": GameEnums.CommandIntent.RESPOND},
 		{"id": "parties_separated_voluntary", "display_name": "Parties voluntarily separated", "base_weight": 2.0, "favoured_intent": GameEnums.CommandIntent.CONTAIN},
@@ -279,6 +289,8 @@ static func _alcohol_disorder() -> IncidentTypeDefinition:
 	def.district_weight_factors = {"night_economy": 0.9, "asb": 0.4, "police_visibility": -0.3}
 	# Venues fill in the evening; the peak is before, not after, closing.
 	def.time_band_multipliers = {"business": 0.2, "evening": 2.0, "overnight": 1.0}
+	# Beer gardens in July, empty streets in February.
+	def.season_multipliers = {GameEnums.Season.SUMMER: 1.4, GameEnums.Season.WINTER: 0.8}
 	def.rain_multiplier = 0.7
 	def.possible_outcomes = [
 		{"id": "group_dispersed", "display_name": "Group dispersed without incident", "base_weight": 3.0, "favoured_skill": "community", "favoured_intent": GameEnums.CommandIntent.RESOLVE},
@@ -361,6 +373,8 @@ static func _vehicle_crime() -> IncidentTypeDefinition:
 	def.district_weight_factors = {"vehicle_crime_risk": 0.9, "police_visibility": -0.4}
 	# Cars are left unattended overnight; so are the streets they're on.
 	def.time_band_multipliers = {"business": 0.4, "evening": 0.9, "overnight": 1.9}
+	# Long dark evenings give cover to anyone working a street of cars.
+	def.season_multipliers = {GameEnums.Season.WINTER: 1.2}
 	def.possible_outcomes = [
 		{"id": "suspect_disturbed", "display_name": "Suspect disturbed and made off", "base_weight": 2.5},
 		{"id": "vehicle_recovered", "display_name": "Vehicle located and recovered", "base_weight": 1.5, "favoured_skill": "investigation", "favoured_intent": GameEnums.CommandIntent.LOCATE},
