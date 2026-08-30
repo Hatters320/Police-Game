@@ -591,17 +591,27 @@ func _build_lighting() -> void:
 	_sun.shadow_enabled = false
 	add_child(_sun)
 
-	Simulation.core.tick_completed.connect(refresh_lighting)
+	set_process(true)
+	refresh_lighting()
+
+## Drives the lighting every frame rather than once per simulated minute.
+##
+## The per-minute version stepped: at 1x that is one jump a second, and at
+## 4x it reads as the light flickering between levels through dawn. Adding
+## the clock's sub-tick fraction to the minute makes the sun sweep
+## continuously instead. Cheap enough to do per frame -- six property
+## writes, no allocation, no extra draw calls.
+func _process(_delta: float) -> void:
 	refresh_lighting()
 
 ## Pushes the current minute/season/weather into the real light and sky.
-## Called every simulated minute (cheap: four property writes, no
-## allocation, no per-frame work) and explicitly at shift start, since
-## weather is rolled once per shift rather than ticking.
+## Also called explicitly at shift start, since weather is rolled once per
+## shift rather than ticking.
 func refresh_lighting() -> void:
 	if _sun == null or _environment == null:
 		return
-	var minute: int = Simulation.core.game_clock.total_minutes % (24 * 60)
+	var clock: GameClock = Simulation.core.game_clock
+	var minute: float = fmod(float(clock.total_minutes) + clock.sub_tick_fraction(), 24.0 * 60.0)
 	var season: GameEnums.Season = Simulation.core.current_season()
 	var weather: GameEnums.WeatherType = Simulation.core.weather_manager.current_weather
 	_sun.rotation_degrees = DaylightModel.sun_rotation_degrees(minute, season)

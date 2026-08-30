@@ -1965,6 +1965,94 @@ re-measured alongside it and came back just as low.
 
 That completes every item in the feature request.
 
+### Round G: touch arbitration, and weather you can see
+
+Two touch bugs reported from a real phone, plus the follow-up ask to make
+the weather and day/night cycle actually animate.
+
+*The briefing could not be scrolled by thumb.* Straightforward and mine:
+`ShiftScreenView`, added in the previous round, never attached
+`DragScroll` -- the helper every docked panel and the dispatcher feed have
+used since the "the only way of scrolling... is on the side bar. This is
+too hard on the screen" report. So the longest screens in the game were
+the only ones with no drag-to-scroll at all. Now attached.
+
+*"The resource menu is still hyper sensitive... it always opens up a
+units details."* This one had been reported before and previously fixed
+twice -- so rather than tune the threshold again, the gesture arbitration
+was inverted. `DragScroll` used to run "assume tap, prove drag": nothing
+was neutralised until the pointer passed a 5px threshold. That leaves a
+live window between touch-down and the threshold, and reproducing it with
+real touch events (CDP `Input.dispatchTouchEvent`, not mouse emulation)
+showed two distinct failures in it:
+
+  * An `OptionButton` opens its popup on *press*, not release. A single
+    scroll drag down the briefing opened a patrol picker and then selected
+    an item out of the open list -- silently rewriting patrol tasking.
+    Captured on screen: Patrol Car 1 changed to "High Street" and Car 2 to
+    "Bookshop" purely from scrolling.
+  * A row button still received the press, so a thumb drag that stayed
+    just inside the threshold still read as a tap and opened the row.
+
+It now runs "assume drag, prove tap": every button is neutralised on
+touch-down, and if the gesture ends without passing the threshold, the tap
+is *synthesised* onto whichever button was actually under the release
+point (`show_popup()` for an OptionButton, a toggle flip for a pill, a
+`pressed` emit otherwise). No control can fire from a scroll, and a real
+tap still works because it is replayed deliberately rather than left to
+slip through a gap. Toggle buttons are explicitly left un-pressed during
+suppression, since clearing a selected priority pill's state there would
+silently deselect it behind the view's back.
+
+Verified with real touch events on the exported build: dragging the
+resources list scrolls it (Patrol Cars 3-5 scrolled into view) and opens
+nothing; tapping a unit card still opens its details; the briefing scrolls
+under a thumb; and 26 drags down the briefing left every patrol picker
+still reading "Reserve".
+
+*Real weather.* `WeatherOverlay` was a single flat `ColorRect` -- one
+translucent rectangle that told the player it was raining only if they
+read the HUD chip. It now draws animated precipitation over the town:
+~200 slanted rain streaks falling fast, ~130 snowflakes drifting with a
+sine sway, and slow drifting fog banks, each over the same per-type tint
+as before. Drawn as one `_draw()` pass over a plain particle array rather
+than `GPUParticles2D`, because the target is mobile Web on
+`gl_compatibility` where a couple of hundred `draw_line` calls in a single
+canvas item are predictable and cheap -- and it stops processing entirely
+on a clear shift rather than running an empty loop.
+
+The simulation model is deliberately untouched: weather is still one value
+rolled once per shift, so the spec's "do not build detailed weather
+simulation" still holds. This is presentation only.
+
+*Real day/night animation.* The lighting was refreshed once per simulated
+minute -- one jump a second at 1x, and a visible flicker between light
+levels at 4x. `DaylightModel` now takes a fractional minute, and
+`City3DView` drives it every frame using the clock's sub-tick fraction, so
+the sun sweeps continuously. The screen tint follows the same fractional
+value, so the two fade together instead of one stepping while the other
+sweeps.
+
+*Measured, not eyeballed.* New `tests/capture_weather.gd` forces each
+weather type, captures two frames a short interval apart and reports how
+much of the screen actually changed between them:
+
+| | frame-to-frame change |
+|---|---|
+| clear (baseline: traffic only) | 0.32% |
+| rain | 3.78% |
+| snow | 2.50% |
+| fog | 1.09% |
+
+The first pass drew correctly but read as too faint once a full frame was
+viewed rather than a zoomed crop, so drop count and alpha were raised and
+the capture re-run. The same harness sweeps the clock across a day and
+captures the light at each hour -- 06:00 renders as pre-dawn dark and
+13:00 as full midday, on the same spring shift.
+
+FPS A/B in the same session: 0.958 / 0.943 before against 0.966 after --
+no regression from either the per-frame lighting or the particles.
+
 Not built: real art assets. Everything drawn above is still flat-colour
 primitives, just arranged more deliberately toward the spec's
 "SimCity-style" target (section 2) than the original placeholder shapes

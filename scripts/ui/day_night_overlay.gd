@@ -30,14 +30,16 @@ func _ready() -> void:
 	_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_tint)
-	Simulation.core.tick_completed.connect(_refresh)
-	_refresh()
+	set_process(true)
 
 ## Tracks the same daylight curve the 3D lighting uses, so the two never
 ## disagree about when dusk is -- and so the tint follows the *season*:
-## a 17:00 winter shift is already dark, a 17:00 summer one is not.
-func _refresh() -> void:
-	var minute_of_day: int = Simulation.core.game_clock.total_minutes % (24 * 60)
+## a 17:00 winter shift is already dark, a 17:00 summer one is not. Driven
+## per frame off the same fractional minute the lighting uses, so the two
+## fade together rather than one stepping while the other sweeps.
+func _process(_delta: float) -> void:
+	var clock: GameClock = Simulation.core.game_clock
+	var minute_of_day: float = fmod(float(clock.total_minutes) + clock.sub_tick_fraction(), 24.0 * 60.0)
 	var season: GameEnums.Season = Simulation.core.current_season()
 	var darkness: float = 1.0 - DaylightModel.daylight_factor(minute_of_day, season)
 	_tint.color = Color(TINT_COLOR, NIGHT_ALPHA * darkness)

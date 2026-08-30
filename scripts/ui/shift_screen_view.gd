@@ -57,6 +57,16 @@ func build_frame() -> void:
 	content.add_theme_constant_override("separation", 12)
 	_scroll.add_child(content)
 
+	# Drag-anywhere scrolling, the same helper every docked panel and the
+	# dispatcher feed already use. Without it these screens could only be
+	# scrolled by their few-pixels-wide scroll bar, which is exactly the
+	# complaint real playtesting raised about the docked panels long ago
+	# ("the only way of scrolling... is on the side bar. This is too hard
+	# on the screen") -- and these are longer screens than any of those.
+	# It also arbitrates tap versus drag, so a thumb flick that starts on
+	# a priority button scrolls instead of selecting it.
+	DragScroll.attach(self, _scroll, _scroll)
+
 ## The screen's masthead: an eyebrow line, the big title, and a row of
 ## context chips (shift type, season, weather, time window). Replaces what
 ## used to be a bare 34px Label.

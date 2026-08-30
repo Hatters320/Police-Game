@@ -18,11 +18,31 @@ extends Node
 ## Controls get their turn sees every press regardless of what sits under
 ## it.
 ##
-## Taps are preserved: nothing is consumed until the pointer actually
-## moves past DRAG_THRESHOLD, and only then is the release swallowed, so a
-## drag that happens to begin on a row scrolls the list instead of also
-## activating that row -- the same tap-versus-drag arbitration main.gd
-## makes for map gestures.
+## Taps are preserved, but the arbitration runs the other way round from
+## how it first did, and that matters. Originally nothing was neutralised
+## until the pointer had moved past DRAG_THRESHOLD -- "assume tap, prove
+## drag". That leaves a window between touch-down and the threshold in
+## which the control under the finger is still live, and two things go
+## wrong in it:
+##
+##   * An OptionButton opens its popup on *press*, not release. A patrol
+##     picker in the briefing would open, and the rest of the same drag
+##     would then pick an item out of the open list -- a scroll silently
+##     rewriting the player's patrol tasking. Reproduced with real touch
+##     events, not theorised.
+##   * A plain row Button still receives the press. Suppressing it later
+##     un-presses it, but a thumb drag that stays just inside the
+##     threshold still reads as a tap and opens the row -- which is the
+##     complaint that kept coming back: "the resource menu is still hyper
+##     sensitive to touch so when I'm just looking to scroll down the
+##     resourcing list it always opens up a units details."
+##
+## So it now runs "assume drag, prove tap": every button is neutralised on
+## touch-down, and if the gesture ends without ever passing the threshold,
+## the tap is synthesised onto whatever button was actually under the
+## release point. No control can fire from a scroll, and a real tap still
+## works because it is replayed deliberately rather than left to slip
+## through a gap.
 
 ## Deliberately small. The first version used 14 (matching main.gd's map
 ## threshold) and that is too much on a phone: a short thumb flick did
@@ -92,7 +112,11 @@ func _collect_buttons(node: Node) -> void:
 				_suppressed[button] = button.mouse_filter
 				# Un-press it first: a Button already holding a press would
 				# otherwise stay visually held for the rest of the gesture.
-				button.set_pressed_no_signal(false)
+				# Toggle buttons are left alone -- clearing a priority
+				# pill's pressed state here would silently deselect it
+				# behind the view's own back.
+				if not button.toggle_mode:
+					button.set_pressed_no_signal(false)
 				button.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_collect_buttons(child)
 
@@ -154,17 +178,28 @@ func _input(event: InputEvent) -> void:
 			_last_pos = pos
 			_start_scroll = _scroll.scroll_vertical
 			_velocity = 0.0 # a new touch stops any coast, like a real list
+			# Neutralise everything up front -- see the header. Nothing can
+			# activate from a press any more; a genuine tap is replayed on
+			# release instead.
+			_suppress_buttons()
 		return
 
 	if released_event:
+		if not _active:
+			return
 		var was_drag: bool = _exceeded
 		_active = false
 		_exceeded = false
+		var tap_target: BaseButton = null if was_drag else _button_at(pos)
 		_restore_buttons()
-		if was_drag:
-			if absf(_velocity) < MIN_FLICK_VELOCITY:
-				_velocity = 0.0
-			get_viewport().set_input_as_handled()
+		if was_drag and absf(_velocity) < MIN_FLICK_VELOCITY:
+			_velocity = 0.0
+		# The release is always consumed: the buttons underneath have just
+		# been made live again, and letting them also see this event would
+		# double up with the synthesised tap below.
+		get_viewport().set_input_as_handled()
+		if tap_target != null:
+			_activate(tap_target)
 		interaction_ended.emit()
 		return
 
@@ -172,16 +207,6 @@ func _input(event: InputEvent) -> void:
 		var delta_from_start: Vector2 = pos - _start_pos
 		if not _exceeded and delta_from_start.length() > DRAG_THRESHOLD:
 			_exceeded = true
-			# Consuming the release is not enough on its own: the Buttons
-			# inside already received the press, and a Button that has been
-			# pressed will still fire when the pointer comes up. Real
-			# playtesting: "when you scroll through the incidents they are
-			# very sensitive so one opens up whilst you are scrolling even
-			# though you didn't want it to." Making them ignore the mouse
-			# for the rest of the gesture un-presses them and guarantees no
-			# row can activate from a scroll; _restore_buttons puts them
-			# back on release.
-			_suppress_buttons()
 		if _exceeded:
 			_scroll.scroll_vertical = _start_scroll - int(delta_from_start.y)
 			# Track instantaneous velocity for the flick, smoothed a little
@@ -191,3 +216,37 @@ func _input(event: InputEvent) -> void:
 			_velocity = clampf(lerpf(_velocity, step / frame_time, 0.4), -MAX_FLICK_VELOCITY, MAX_FLICK_VELOCITY)
 			_last_pos = pos
 			get_viewport().set_input_as_handled()
+
+## The button a tap landed on, chosen from the ones this helper
+## neutralised on press. Smallest area wins, so a control nested inside a
+## card beats the card's own full-rect hit button behind it.
+func _button_at(pos: Vector2) -> BaseButton:
+	var best: BaseButton = null
+	var best_area := INF
+	for button in _suppressed:
+		if not is_instance_valid(button) or not button.is_visible_in_tree():
+			continue
+		if not button.is_inside_tree() or button.disabled:
+			continue
+		var rect: Rect2 = button.get_global_rect()
+		# Must be inside the scrollable viewport too -- a row scrolled out
+		# of sight still has a global rect and must not be tappable.
+		if not rect.has_point(pos) or not _hit_rect_source.get_global_rect().has_point(pos):
+			continue
+		var area: float = rect.size.x * rect.size.y
+		if area < best_area:
+			best_area = area
+			best = button
+	return best
+
+## Replays a tap that the press-time suppression swallowed. Each control
+## kind has to be activated the way it would have activated itself.
+func _activate(button: BaseButton) -> void:
+	if button is OptionButton:
+		(button as OptionButton).show_popup()
+		return
+	if button.toggle_mode:
+		# Drives the same toggled/pressed signals a real press would.
+		button.button_pressed = not button.button_pressed
+		return
+	button.pressed.emit()
