@@ -1878,6 +1878,93 @@ left to rot beside the per-weather table that replaced it.
 Not built in this phase, and the last item still open from the request:
 the briefing and debriefing screen redesign.
 
+### Feature request, phase 5: briefing and debriefing redesign
+
+The last item from the feature request. The briefing and debrief were the
+only screens left rendering as raw default `Label`s stacked on a flat dim
+rectangle, while the HUD, the docked panels and the KPI dashboard had all
+moved onto `UiTheme`'s navy police palette. They were also the first and
+last thing a player sees every shift, which made them the worst place in
+the build for that to still be true.
+
+*One design language, not a third one.* New `ShiftScreenView` base class
+carries the shared chrome for both screens -- hero masthead with context
+chips, section cards, stat tiles, severity-badged rows, and 0-100 meters
+-- built entirely from `UiTheme`'s existing primitives. No new palette was
+invented: the shapes, radii and colours are deliberately identical to
+`SidePanelView`'s, just at full-screen reading metrics rather than a
+compact docked strip. This mirrors how `SidePanelView` already serves the
+docked panels.
+
+*Content the request asked for, generated from real state.* New
+`ShiftAdvisor` (stateless, like the other engine classes) produces the
+KEY RISKS and RECOMMENDED ACTIONS sections on both screens. Nothing in it
+is written flavour text -- every line names the actual figure that
+triggered it, so the player can act on it and check afterwards whether it
+was true. A spring day shift with a full crew and a clean town correctly
+flags no risks at all; a winter night shift in snow produces:
+
+    [HIGH] Crew starts already tired (fatigue 20) -- second night of the
+           pair. Expect break requests earlier than usual.
+    [HIGH] Snow: response driving is 35% slower town-wide. Travel time
+           will eat into every target.
+    [MED]  Night shift: 10 officers on, against a minimum of 10.
+    [MED]  Winter: only 8.5 hours of daylight, and burglary runs high
+           through the dark evenings.
+
+Risks sort by severity before being capped, so a HIGH is never pushed off
+the list by three LOW ones that happened to be appended first. On a
+genuinely clean slate the data-driven recommendation lines have nothing to
+say, so there is an explicit fallback to steers that are always true and
+still name a specific control -- rather than showing a nearly-empty
+section.
+
+*What each screen gained.* The briefing adds an operational summary in
+headline tiles (officers on duty against minimum, cars deployable,
+supervisors, calls carried over), key risks, recommended actions, and town
+conditions drawn as per-district confidence and risk meters instead of the
+old `ASB 20, tension 20, visibility 30, confidence 60` text line. Its
+interactive half -- priorities, patrol tasking, reserve -- keeps exactly
+the same behaviour and `Commands` calls, with one real fix: selecting a
+priority now visibly restyles the button, where the old default `Button`s
+gave no confirmation that anything had been selected at all. The debrief
+adds result tiles, the five performance dimensions as scored meters (the
+band word is kept, but the bar shows how far into the band the score
+sits, which a bare "Response: Good" never could), a "what the next shift
+inherits" risk section, and recommended actions keyed to the weakest
+dimension.
+
+*Verification, including a new tool for it.* The briefing was checked in a
+real browser at phone-landscape size (892x412). The debrief was harder:
+it only appears after twelve simulated hours, which is well beyond what a
+browser screenshot pass can sit through, and keyboard input would not
+reliably reach the Godot canvas headlessly -- an F10 "skip to shift end"
+shortcut was written, never actually fired through the Web canvas, and
+was removed rather than shipped unverified. What replaced it is
+`tests/capture_shift_screens.gd`, which boots the real game scene under
+`xvfb-run`, captures the briefing in scrolled sections, confirms it
+through the view's own handler, fast-forwards to shift end and captures
+the debrief the same way. Both screens were confirmed rendering correctly
+that way, and it is a reusable tool rather than throwaway scaffolding --
+the companion to `run_shift_debug.gd`, which covers the simulation side.
+
+`ShiftAdvisor` itself was verified headlessly across the range: a clean
+shift 1, a winter night shift 28 in snow, and a full twelve-hour shift
+with nothing ever dispatched (which correctly scored Response Poor,
+flagged 31 unresolved incidents as HIGH, and recommended dispatching
+sooner and clearing the backlog first).
+
+FPS measured back-to-back in the same session: 0.793 / 0.799 before
+against 0.823 after -- no regression. Worth noting why those absolute
+numbers sit below the 1.25 recorded in phase 4: the sandbox was busier by
+this point in the session, and *both* builds measured lower together. That
+is exactly why the standing practice here is a same-session A/B rather
+than comparing against a number recorded earlier; the first phase-5
+reading looked like a 35% regression until the phase 4 build was
+re-measured alongside it and came back just as low.
+
+That completes every item in the feature request.
+
 Not built: real art assets. Everything drawn above is still flat-colour
 primitives, just arranged more deliberately toward the spec's
 "SimCity-style" target (section 2) than the original placeholder shapes
