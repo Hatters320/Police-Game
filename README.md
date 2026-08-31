@@ -2080,6 +2080,69 @@ spring shift.
 FPS A/B in the same session: 0.958 / 0.943 before against 0.966 after --
 no regression from either the per-frame lighting or the particles.
 
+### Round H: surviving the browser's own chrome
+
+Reported from a real phone: "on this particular web page provider, not
+sure if it's safari or edge for example, the dispatcher comments are off
+the bottom of the screen... but when I use other providers it is ok."
+
+Not a layout bug in the game, and not something a fixed margin can fix
+properly. Godot's Web export sizes its canvas to the *layout* viewport
+(`window.innerHeight`). Safari -- and any browser with an overlaying
+bottom toolbar -- keeps the layout viewport at full height and paints its
+toolbar on top of the bottom of it. So the canvas really is taller than
+the visible part of it, and anything pinned to the very bottom edge was
+drawn underneath the toolbar. The dispatcher feed sat at
+`offset_bottom = 0`, so it was exactly the casualty. Browsers without an
+overlaying toolbar have nothing hidden, which is why it looked fine
+elsewhere.
+
+The browser will say how much it is covering, if asked:
+`window.visualViewport` reports the actually-visible region, and the
+difference against `window.innerHeight` is the hidden amount. Two changes:
+
+  * `web/head_include.html` sets the page to `100dvh` (the dynamic
+    viewport height, which already accounts for chrome on modern
+    Safari/Chrome/Edge) and installs listeners that publish the measured
+    top/bottom insets continuously -- it has to be continuous, because the
+    toolbar slides in and out as the page is scrolled. It is a committed
+    file injected by `tools/inject_web_head.py` rather than only living in
+    the export preset's `html/head_include`, because `export_presets.cfg`
+    is gitignored by Godot's default template: configured only there, the
+    fix would have lived on one machine and silently vanished from a fresh
+    clone. The injector is idempotent, so it is safe whether or not the
+    local preset also carries the snippet, and it was checked by clearing
+    the preset, exporting clean (marker absent) and injecting (marker
+    present).
+  * New `ViewportInsets` reads that, converts CSS pixels to Godot's
+    logical pixels (the canvas is `cssHeight` tall in one and
+    `get_visible_rect().size.y` in the other), and caches it. `HudView`
+    polls twice a second -- ample for something that changes on a human
+    timescale, and well away from doing a JavaScript round trip per frame
+    -- and re-pins on change.
+
+Everything anchored to a screen edge now respects it: the dispatcher feed
+lifts clear, the docked Resources/Incidents panels shrink by the same
+amount (their height already derives from `feed_total_height()`, which now
+includes the inset, so they were fixed by making that one number honest
+rather than by touching them), the top bar clears any top chrome, and the
+briefing/debrief screens inset their scroll area -- those end in a primary
+button, which would otherwise land under the toolbar.
+
+Verified by simulating the condition rather than hoping: a Playwright init
+script overrides `window.visualViewport` to report 90px less than
+`innerHeight`, exactly as Safari does. With that in place the browser
+published `{top: 0, bottom: 90}`, and the feed strip and docked panel both
+moved up clear of the bottom 90px band. Re-run with the override off, the
+browser published `{top: 0, bottom: 0}` and the layout was identical to
+before -- so no space is given up on browsers that do not need it, which
+was the thing most at risk of being got wrong. FPS A/B in the same
+session: 0.947 before, 0.953 after.
+
+A cap of 25% of viewport height guards the inset: if some browser ever
+reported something absurd, losing a strip of screen is a better failure
+than pushing the whole HUD out of view.
+
 Not built: real art assets. Everything drawn above is still flat-colour
 primitives, just arranged more deliberately toward the spec's
 "SimCity-style" target (section 2) than the original placeholder shapes

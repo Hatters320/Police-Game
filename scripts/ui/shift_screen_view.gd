@@ -36,6 +36,7 @@ var _scroll: ScrollContainer
 ## subclass's setup() before adding anything.
 func build_frame() -> void:
 	layer = 5
+	ViewportInsets.poll(get_viewport())
 
 	var backdrop := ColorRect.new()
 	backdrop.color = Color(0.04, 0.06, 0.10, 0.96)
@@ -45,9 +46,13 @@ func build_frame() -> void:
 	_scroll = ScrollContainer.new()
 	_scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_scroll.offset_left = 24
-	_scroll.offset_top = 18
+	# Kept clear of any browser chrome overlaying the canvas edges
+	# (ViewportInsets) -- these screens end in a primary button, and on a
+	# browser with an overlaying bottom toolbar it would otherwise sit
+	# underneath it.
+	_scroll.offset_top = 18 + ViewportInsets.top()
 	_scroll.offset_right = -24
-	_scroll.offset_bottom = -18
+	_scroll.offset_bottom = -(18 + ViewportInsets.bottom())
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(_scroll)
 

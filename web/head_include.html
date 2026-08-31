@@ -1,0 +1,46 @@
+<!--
+  Injected into the Web export's <head> by tools/inject_web_head.py.
+
+  Why this exists as a committed file rather than only as the export
+  preset's html/head_include: export_presets.cfg is gitignored (Godot's
+  default, since it can carry signing credentials), so anything configured
+  only there would live on one machine and silently vanish from a fresh
+  clone. This keeps the fix in version control and applies it in the same
+  post-export pass that already cache-busts the .pck.
+
+  What it does: Godot sizes its canvas to the layout viewport
+  (window.innerHeight). Safari, and any browser with an overlaying bottom
+  toolbar, keeps the layout viewport at full height and paints the toolbar
+  on top of the bottom of it -- so the canvas is taller than the visible
+  part and anything pinned to the bottom edge (the dispatcher feed) is
+  drawn underneath. 100dvh fixes the sizing where it is supported; the
+  script publishes the measured hidden strip for ViewportInsets to read,
+  which covers everything else and tracks the toolbar sliding in and out.
+-->
+<style>
+html, body { height: 100dvh; max-height: 100dvh; overflow: hidden; }
+#canvas { touch-action: none; }
+</style>
+<script>
+(function () {
+	function publish() {
+		var vv = window.visualViewport;
+		var innerH = window.innerHeight || 0;
+		var visH = vv ? vv.height : innerH;
+		var offTop = vv ? vv.offsetTop : 0;
+		var hiddenBottom = Math.max(0, innerH - (visH + offTop));
+		window.__westfordInsets = {
+			top: Math.max(0, offTop),
+			bottom: hiddenBottom,
+			cssHeight: innerH
+		};
+	}
+	publish();
+	window.addEventListener("resize", publish);
+	window.addEventListener("orientationchange", publish);
+	if (window.visualViewport) {
+		window.visualViewport.addEventListener("resize", publish);
+		window.visualViewport.addEventListener("scroll", publish);
+	}
+})();
+</script>

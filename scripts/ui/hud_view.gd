@@ -91,8 +91,36 @@ signal feed_height_changed
 ## Total vertical space the feed strip occupies from the bottom of the
 ## screen, including its tab row and the panel's own padding -- the single
 ## number SidePanelView needs to know to stay clear of it.
+## How often to re-ask the browser about its chrome. The toolbar slides
+## in and out as the page scrolls, so this cannot be measured once at
+## startup -- but it changes on a human timescale, so twice a second is
+## ample and keeps the JavaScript round trip well away from per-frame.
+const INSET_POLL_SECONDS := 0.5
+
+var _top_bar: Control
+var _inset_poll_timer: float = 0.0
+
+func _process(delta: float) -> void:
+	_inset_poll_timer -= delta
+	if _inset_poll_timer > 0.0:
+		return
+	_inset_poll_timer = INSET_POLL_SECONDS
+	if ViewportInsets.poll(get_viewport()):
+		_apply_insets()
+
+## Re-pins everything anchored to a screen edge. Called when the measured
+## chrome changes, and once at startup.
+func _apply_insets() -> void:
+	if _top_bar:
+		_top_bar.offset_top = ViewportInsets.top()
+	if _feed_wrapper:
+		_apply_feed_height() # re-pins the feed and re-emits feed_height_changed
+
 func feed_total_height() -> float:
-	return FEED_HEIGHTS[_feed_height_index] + 32.0
+	# Includes the browser-chrome inset: docked panels size themselves off
+	# this, so if the feed is lifted clear of a toolbar they have to give
+	# up the same space rather than extending down behind it.
+	return FEED_HEIGHTS[_feed_height_index] + 32.0 + ViewportInsets.bottom()
 
 ## The comms strip stops accepting drags while a modal detail panel is
 ## open, so an incident pop-up owns the gesture until it is closed.
@@ -109,6 +137,15 @@ func _ready() -> void:
 	_build_stats_bar()
 	_build_controls_bar()
 	_build_feed()
+
+	# Measure the browser's chrome before the first frame is shown, so the
+	# feed starts in the right place rather than jumping up half a second
+	# later once the first poll lands.
+	ViewportInsets.poll(get_viewport())
+	_apply_insets()
+	get_viewport().size_changed.connect(func():
+		ViewportInsets.poll(get_viewport())
+		_apply_insets())
 
 	Simulation.core.incident_manager.incident_created.connect(_on_incident_created)
 	Simulation.core.incident_manager.incident_escalated.connect(_on_incident_escalated)
@@ -147,6 +184,7 @@ func _build_stats_bar() -> void:
 	bar_style.content_margin_bottom = 3
 	bar.add_theme_stylebox_override("panel", bar_style)
 	bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_top_bar = bar
 	bar.position = Vector2(6, 3)
 	bar.offset_right = -6
 	add_child(bar)
@@ -656,10 +694,14 @@ func _apply_feed_height() -> void:
 	# span from (bottom - height - chrome) to the bottom edge.
 	# The 32 is the tab row plus the panel's own padding, measured from the
 	# compact layout this replaced (wrapper sat at -78 for a 46px feed).
+	# Lifted clear of any browser chrome overlaying the bottom of the
+	# canvas (ViewportInsets) -- otherwise on Safari and friends the feed
+	# is drawn underneath the toolbar and simply cannot be read.
+	var bottom_inset: float = ViewportInsets.bottom()
 	_feed_wrapper.offset_left = 10
 	_feed_wrapper.offset_right = -10
-	_feed_wrapper.offset_top = -(height + 32.0)
-	_feed_wrapper.offset_bottom = 0
+	_feed_wrapper.offset_top = -(height + 32.0 + bottom_inset)
+	_feed_wrapper.offset_bottom = -bottom_inset
 	# Points the way the next tap will take it: up while there is a bigger
 	# size left, back down when the next tap wraps to compact.
 	_feed_size_icon.kind = UiIcon.Kind.CHEVRON_DOWN if _feed_height_index == FEED_HEIGHTS.size() - 1 else UiIcon.Kind.CHEVRON_UP

@@ -68,6 +68,9 @@ var _hud_view: HudView
 ## overlapped by them.
 func available_docked_height() -> float:
 	var viewport_height: float = get_viewport().get_visible_rect().size.y
+	# feed_total_height() already includes the browser-chrome inset
+	# (ViewportInsets), so a docked panel gives up the same space the feed
+	# does and neither ends up drawn under a toolbar.
 	var feed_height: float = _hud_view.feed_total_height() if _hud_view else 78.0
 	return maxf(90.0, viewport_height - PANEL_TOP_Y - feed_height - DOCKED_FEED_GAP)
 
